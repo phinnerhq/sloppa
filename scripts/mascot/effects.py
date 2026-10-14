@@ -78,8 +78,9 @@ def sticker(im, size, white=10, ink=5, shadow=10):
 
 if __name__ == "__main__":
     src_dir, out_dir = sys.argv[1], sys.argv[2]
-    # name: (bottom crop, a point inside the cat)
-    crops = {"stare": (760, (520, 500)), "hiss": (960, (560, 500)), "loaf": (None, (700, 600))}
+    # name: (bottom crop, a point inside the cat). stare needs none: clean_alpha already drops the
+    # wispy neck fur, and a straight crop would slice its chin off.
+    crops = {"stare": (None, (520, 500)), "hiss": (960, (560, 500)), "loaf": (None, (700, 600))}
     for name, (crop, seed) in crops.items():
         cut = clean_alpha(Image.open(f"{src_dir}/{name}.png").convert("RGBA"), crop, seed)
         graded = grade(cut)
