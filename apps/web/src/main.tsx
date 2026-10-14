@@ -1,5 +1,5 @@
 import { RegistryProvider, useAtom } from "@effect/atom-react"
-import { IconContext, SignOutIcon } from "@phosphor-icons/react"
+import { IconContext, PackageIcon, SignOutIcon } from "@phosphor-icons/react"
 import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
@@ -237,6 +237,7 @@ const App = () => {
           <span className="pressable-face flex items-center gap-3 py-1.5 pr-4 pl-2">
             <Floppa mood="hiss" className="-mt-9 -mb-3 h-20 w-auto" />
             <span className="font-game text-2xl leading-none">sloppa artifacts</span>
+            <PackageIcon size={26} className="-ml-1 shrink-0" />
           </span>
         </a>
         <div className="flex items-center gap-2.5">
