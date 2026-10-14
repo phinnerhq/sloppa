@@ -12,6 +12,16 @@ import {
 export type Mood = "stare" | "hiss" | "loaf"
 
 /** The mascot: real caracals, cut out and stickered (see scripts/mascot). */
+/** The hover tricks: a sideways flop, a squash-and-stretch hop, and a wound-up spin that bounces to rest. */
+const TRICKS = ["animate-flop", "animate-squish", "animate-spin-flop"] as const
+type Trick = (typeof TRICKS)[number]
+
+/** A random trick, never the same one twice in a row. */
+const nextTrick = (last: Trick | null): Trick => {
+  const pool = TRICKS.filter((trick) => trick !== last)
+  return pool[Math.floor(Math.random() * pool.length)]!
+}
+
 export const Floppa = ({
   mood = "stare",
   className = "",
@@ -21,15 +31,20 @@ export const Floppa = ({
   className?: string
   flop?: "hover" | "loop" | "none"
 }) => {
-  const [flopping, setFlopping] = useState(false)
+  const [trick, setTrick] = useState<{ readonly current: Trick | null; readonly last: Trick | null }>({
+    current: null,
+    last: null
+  })
   return (
     <img
       src={`/floppa/${mood}.webp`}
       alt=""
       draggable={false}
-      onMouseEnter={() => flop === "hover" && setFlopping(true)}
-      onAnimationEnd={() => setFlopping(false)}
-      className={`select-none ${flop === "loop" ? "animate-flop-loop" : flopping ? "animate-flop" : ""} ${className}`}
+      onMouseEnter={() =>
+        flop === "hover" && trick.current === null && setTrick({ current: nextTrick(trick.last), last: trick.last })
+      }
+      onAnimationEnd={() => setTrick({ current: null, last: trick.current })}
+      className={`select-none ${flop === "loop" ? "animate-flop-loop" : (trick.current ?? "")} ${className}`}
     />
   )
 }

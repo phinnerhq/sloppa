@@ -184,9 +184,35 @@
     text-shadow: 0 3px 0 var(--color-ink);
   }
 
-  /* Native select (keyboard + mobile pickers for free), dressed as a panel; the chevron is a Phosphor icon on top. */
+  /* The dropdowns' trigger, dressed as a panel (see Select in ArtifactList.tsx). */
   .game-select {
-    @apply min-w-0 cursor-pointer appearance-none rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)] py-2.5 pr-10 pl-4 font-bold text-ink transition-colors hover:bg-white md:max-w-64;
+    @apply flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl border-[3px] border-ink bg-cream py-2.5 pr-4 pl-4 text-left font-bold text-ink shadow-[0_4px_0_var(--color-ink)] transition-colors select-none hover:bg-white data-popup-open:bg-white;
+  }
+  /* Its popup: a panel that pops out of the trigger. */
+  .game-picker {
+    @apply min-w-(--anchor-width) rounded-xl border-[3px] border-ink bg-cream shadow-[0_5px_0_var(--color-ink)] outline-none;
+    transform-origin: var(--transform-origin);
+    transition:
+      transform 220ms cubic-bezier(0.3, 1.4, 0.5, 1),
+      opacity 120ms linear;
+    &[data-starting-style],
+    &[data-ending-style] {
+      opacity: 0;
+      transform: scale(0.92) translateY(-6px);
+    }
+    &[data-ending-style] {
+      transition-duration: 100ms;
+      transition-timing-function: ease-in;
+    }
+  }
+  .game-option {
+    @apply grid cursor-pointer grid-cols-[1rem_1fr_auto] items-center gap-2 rounded-lg border-2 border-transparent px-2.5 py-2 font-bold text-ink outline-none select-none;
+    &[data-highlighted] {
+      @apply border-ink bg-gold;
+    }
+    &[data-selected]:not([data-highlighted]) {
+      @apply bg-belly;
+    }
   }
 
   /* A static, clipped grid of tiles; only the tiles move (see Doodles in ui.tsx). */
@@ -237,6 +263,49 @@
   }
   70% {
     transform: rotate(-3deg) scale(1.02, 0.98);
+  }
+}
+/* Squash and stretch: crouch, spring up tall and thin, land flat, wobble back to shape. */
+@keyframes squish {
+  0%,
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+  18% {
+    transform: translateY(0) scale(1.18, 0.78);
+  }
+  40% {
+    transform: translateY(-18%) scale(0.88, 1.16);
+  }
+  60% {
+    transform: translateY(0) scale(1.14, 0.84);
+  }
+  75% {
+    transform: translateY(0) scale(0.95, 1.05);
+  }
+  88% {
+    transform: translateY(0) scale(1.02, 0.98);
+  }
+}
+/* A spin with anticipation: wind back, whip round past a full turn, bounce back into place. */
+@keyframes spin-flop {
+  0% {
+    transform: rotate(0) scale(1, 1);
+  }
+  16% {
+    transform: rotate(-22deg) scale(1.06, 0.92);
+  }
+  58% {
+    transform: translateY(-10%) rotate(380deg) scale(0.96, 1.04);
+  }
+  72% {
+    transform: translateY(0) rotate(352deg) scale(1.05, 0.95);
+  }
+  86% {
+    transform: rotate(364deg) scale(1, 1);
+  }
+  100% {
+    transform: rotate(360deg) scale(1, 1);
   }
 }
 /* One tile per loop, so it wraps seamlessly. */
@@ -295,6 +364,14 @@
   animation: flop 0.6s ease-in-out;
   transform-origin: 50% 85%;
 }
+@utility animate-squish {
+  animation: squish 0.7s cubic-bezier(0.33, 0, 0.3, 1);
+  transform-origin: 50% 100%;
+}
+@utility animate-spin-flop {
+  animation: spin-flop 0.85s cubic-bezier(0.45, 0, 0.25, 1);
+  transform-origin: 50% 60%;
+}
 @utility animate-flop-loop {
   animation: flop 0.9s ease-in-out infinite;
   transform-origin: 50% 85%;
@@ -321,6 +398,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .animate-flop,
+  .animate-squish,
+  .animate-spin-flop,
   .animate-flop-loop,
   .animate-bob,
   .animate-pop-in,

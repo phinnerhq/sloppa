@@ -1,5 +1,6 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import { CaretDownIcon } from "@phosphor-icons/react"
+import { Select as BaseSelect } from "@base-ui/react/select"
+import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react"
 import type { Artifact, Stats } from "@sloppa/api"
 import { Predicate } from "effect"
 import { AsyncResult, type Atom } from "effect/reactivity"
@@ -97,43 +98,66 @@ const StatsRow = ({ stats }: { stats: Stats | null }) => (
   </div>
 )
 
+interface Option {
+  readonly value: string
+  readonly label: string
+  readonly count?: number
+}
+
+/**
+ * A dropdown dressed like the rest of the game: Base UI handles the listbox semantics and keyboard,
+ * the popup is a panel. Native pickers can't be styled in Gecko yet (`appearance: base-select` is flagged off).
+ */
 const Select = ({
   label,
   value,
   onChange,
-  children
+  options
 }: {
   label: string
   value: string
   onChange: (value: string) => void
-  children: ReactNode
+  options: ReadonlyArray<Option>
 }) => (
-  <div className="relative">
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="game-select game-field w-full"
-    >
-      {children}
-    </select>
-    <CaretDownIcon size={14} className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2" />
-  </div>
+  <BaseSelect.Root items={options} value={value} onValueChange={(next) => onChange(next ?? "")} modal={false}>
+    <BaseSelect.Trigger aria-label={label} className="game-select game-field">
+      <BaseSelect.Value className="min-w-0 truncate" />
+      <BaseSelect.Icon className="shrink-0 transition-transform duration-150 in-data-popup-open:rotate-180">
+        <CaretDownIcon size={14} />
+      </BaseSelect.Icon>
+    </BaseSelect.Trigger>
+    <BaseSelect.Portal>
+      <BaseSelect.Positioner alignItemWithTrigger={false} align="start" sideOffset={10} className="z-40 outline-none">
+        <BaseSelect.Popup className="game-picker">
+          <BaseSelect.List className="max-h-[min(22rem,var(--available-height))] overflow-y-auto p-1.5">
+            {options.map((option) => (
+              <BaseSelect.Item key={option.value} value={option.value} className="game-option group">
+                <BaseSelect.ItemIndicator className="col-start-1">
+                  <CheckIcon size={14} />
+                </BaseSelect.ItemIndicator>
+                <BaseSelect.ItemText className="col-start-2 min-w-0 truncate">{option.label}</BaseSelect.ItemText>
+                {option.count !== undefined && (
+                  <span className="col-start-3 rounded-md border-2 border-ink bg-gold px-1.5 font-game text-xs group-data-highlighted:bg-cream">
+                    {option.count}
+                  </span>
+                )}
+              </BaseSelect.Item>
+            ))}
+          </BaseSelect.List>
+        </BaseSelect.Popup>
+      </BaseSelect.Positioner>
+    </BaseSelect.Portal>
+  </BaseSelect.Root>
 )
 
 const RepoSelect = ({ repo, onChange }: { repo: string; onChange: (repo: string) => void }) => {
   const repos = AsyncResult.getOrElse(useAtomValue(reposAtom), () => [])
-  return (
-    <Select label="Repository" value={repo} onChange={onChange}>
-      <option value="">All repos</option>
-      {repos.map((r) => (
-        <option key={r.repo} value={r.repo}>
-          {r.repo} ({r.count})
-        </option>
-      ))}
-      {repo !== "" && !repos.some((r) => r.repo === repo) && <option value={repo}>{repo}</option>}
-    </Select>
-  )
+  const options: Array<Option> = [
+    { value: "", label: "All repos" },
+    ...repos.map((r) => ({ value: r.repo, label: r.repo, count: r.count }))
+  ]
+  if (repo !== "" && !repos.some((r) => r.repo === repo)) options.push({ value: repo, label: repo })
+  return <Select label="Repository" value={repo} onChange={onChange} options={options} />
 }
 
 const PrSelect = ({ repo, pr, onChange }: { repo: string; pr: string; onChange: (pr: string) => void }) => {
@@ -141,17 +165,12 @@ const PrSelect = ({ repo, pr, onChange }: { repo: string; pr: string; onChange: 
   useRevalidate(prsAtom(repo))
   // Within one repo "#42" is enough; across repos keep the owner/repo prefix.
   const label = (url: string) => (repo === "" ? prLabel(url) : prLabel(url).replace(/^.*(#\d+)$/, "$1"))
-  return (
-    <Select label="Pull request" value={pr} onChange={onChange}>
-      <option value="">All PRs</option>
-      {prs.map((p) => (
-        <option key={p.pr} value={p.pr}>
-          {label(p.pr)} ({p.count})
-        </option>
-      ))}
-      {pr !== "" && !prs.some((p) => p.pr === pr) && <option value={pr}>{label(pr)}</option>}
-    </Select>
-  )
+  const options: Array<Option> = [
+    { value: "", label: "All PRs" },
+    ...prs.map((p) => ({ value: p.pr, label: label(p.pr), count: p.count }))
+  ]
+  if (pr !== "" && !prs.some((p) => p.pr === pr)) options.push({ value: pr, label: label(pr) })
+  return <Select label="Pull request" value={pr} onChange={onChange} options={options} />
 }
 
 const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
@@ -339,7 +358,7 @@ const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
   return (
     <div className="space-y-8">
       {stats !== undefined && <StatsRow stats={stats} />}
-      <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+      <div className="grid gap-3 md:grid-cols-[1fr_15rem_15rem]">
         <input
           type="search"
           value={search}
