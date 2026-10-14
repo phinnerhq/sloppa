@@ -1,7 +1,5 @@
 import { type ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
-import { DateTime, Effect, Option, Schema, Stream } from "effect"
-import { mkdir, readdir, rename, rm } from "node:fs/promises"
-import { join } from "node:path"
+import { DateTime, Effect, FileSystem, Option, Path, PlatformError, Schema, Stream } from "effect"
 import type { ArtifactStorage, PutInput, StoredArtifact } from "./Storage.ts"
 
 /** Sidecar written next to each file: everything S3 would keep as object metadata. */
@@ -29,8 +27,19 @@ const parseRange = (header: string | undefined, size: number) => {
   return start <= end && start < size ? { start, end } : undefined
 }
 
-const fail = (action: string) => (cause: unknown) =>
-  new StorageError({ message: `${action}: ${cause instanceof Error ? cause.message : String(cause)}` })
+/** Platform failures surface as `StorageError`s, prefixed with what was being done. */
+const storageError =
+  (action: string) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>
+  ): Effect.Effect<A, Exclude<E, PlatformError.PlatformError> | StorageError, R> =>
+    effect.pipe(
+      Effect.mapError((cause) =>
+        PlatformError.isPlatformError(cause)
+          ? new StorageError({ message: `${action}: ${cause.message}` })
+          : (cause as Exclude<E, PlatformError.PlatformError>)
+      )
+    )
 
 /**
  * Artifacts as plain files under `dir`: `<uuid>` holds the bytes and
@@ -39,17 +48,20 @@ const fail = (action: string) => (cause: unknown) =>
  */
 export const makeFsStorage = (dir: string) =>
   Effect.gen(function* () {
-    yield* Effect.tryPromise({ try: () => mkdir(dir, { recursive: true }), catch: fail("create storage dir") }).pipe(
-      Effect.orDie
-    )
-    const fileOf = (id: string) => join(dir, id)
-    const metaOf = (id: string) => join(dir, `${id}.json`)
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    yield* fs.makeDirectory(dir, { recursive: true }).pipe(Effect.orDie)
+    const fileOf = (id: string) => path.join(dir, id)
+    const metaOf = (id: string) => path.join(dir, `${id}.json`)
 
     const head = Effect.fn("FsStorage.head")(function* (id: ArtifactId) {
-      const file = Bun.file(metaOf(id))
-      if (!(yield* Effect.promise(() => file.exists()))) return yield* new ArtifactNotFound({ id })
-      const text = yield* Effect.tryPromise({ try: () => file.text(), catch: fail("read metadata") })
-      const meta = yield* decodeMeta(text).pipe(Effect.mapError(fail(`decode metadata of ${id}`)))
+      const text = yield* fs.readFileString(metaOf(id)).pipe(
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.fail(new ArtifactNotFound({ id }))),
+        storageError("read metadata")
+      )
+      const meta = yield* decodeMeta(text).pipe(
+        Effect.mapError((cause) => new StorageError({ message: `decode metadata of ${id}: ${cause.message}` }))
+      )
       const artifact: StoredArtifact = {
         id,
         name: meta.name,
@@ -73,34 +85,32 @@ export const makeFsStorage = (dir: string) =>
         ...(input.repo === undefined ? {} : { repo: input.repo }),
         ...(input.pr === undefined ? {} : { pr: input.pr })
       }).pipe(Effect.orDie)
-      // Bytes first, metadata last: an artifact exists once its sidecar does.
-      yield* Effect.tryPromise({
-        try: async () => {
-          await Bun.write(fileOf(id), input.body)
-          await Bun.write(`${metaOf(id)}.tmp`, meta)
-          await rename(`${metaOf(id)}.tmp`, metaOf(id))
-        },
-        catch: fail("write artifact")
-      })
+      // Bytes first, metadata last: an artifact exists once its sidecar does. The body is streamed to disk,
+      // never buffered whole.
+      yield* Stream.fromReadableStream({
+        evaluate: () => input.body.stream(),
+        onError: (cause) => new StorageError({ message: `read upload: ${String(cause)}` })
+      }).pipe(Stream.run(fs.sink(fileOf(id))), storageError("write artifact"))
+      yield* fs.writeFileString(`${metaOf(id)}.tmp`, meta).pipe(storageError("write metadata"))
+      yield* fs.rename(`${metaOf(id)}.tmp`, metaOf(id)).pipe(storageError("write metadata"))
       return yield* head(id).pipe(Effect.catchTag("ArtifactNotFound", Effect.die))
     })
 
     const read = Effect.fn("FsStorage.read")(function* (id: ArtifactId, range?: string) {
       const artifact = yield* head(id)
-      const file = Bun.file(fileOf(id))
       const slice = parseRange(range, artifact.size)
-      const blob = slice === undefined ? file : file.slice(slice.start, slice.end + 1)
       return {
         artifact,
-        body: Stream.fromReadableStream({ evaluate: () => blob.stream(), onError: fail("read artifact") }),
+        body: fs.stream(
+          fileOf(id),
+          slice === undefined ? {} : { offset: slice.start, bytesToRead: slice.end - slice.start + 1 }
+        ),
         contentLength: slice === undefined ? artifact.size : slice.end - slice.start + 1,
         contentRange: slice === undefined ? undefined : `bytes ${slice.start}-${slice.end}/${artifact.size}`
       }
     })
 
-    const scan = Stream.fromIterableEffect(
-      Effect.tryPromise({ try: () => readdir(dir), catch: fail("list storage dir") })
-    ).pipe(
+    const scan = Stream.fromIterableEffect(fs.readDirectory(dir).pipe(storageError("list storage dir"))).pipe(
       Stream.filter((entry) => entry.endsWith(".json") && UUID.test(entry.slice(0, -5))),
       Stream.mapEffect((entry) => head(entry.slice(0, -5) as ArtifactId).pipe(Effect.option), { concurrency: 16 }),
       Stream.filter(Option.isSome),
@@ -109,10 +119,9 @@ export const makeFsStorage = (dir: string) =>
 
     const remove = Effect.fn("FsStorage.remove")(function* (id: ArtifactId) {
       yield* head(id)
-      yield* Effect.tryPromise({
-        try: () => Promise.all([rm(metaOf(id), { force: true }), rm(fileOf(id), { force: true })]),
-        catch: fail("delete artifact")
-      })
+      yield* Effect.all([fs.remove(metaOf(id), { force: true }), fs.remove(fileOf(id), { force: true })], {
+        concurrency: 2
+      }).pipe(storageError("delete artifact"))
     })
 
     const service: ArtifactStorage["Service"] = { put, head, read, scan, remove }

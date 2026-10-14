@@ -1,6 +1,5 @@
 import type { ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
-import { Context, type DateTime, Effect, Layer, type Stream } from "effect"
-import { join } from "node:path"
+import { Context, type DateTime, Effect, Layer, Path, type Stream } from "effect"
 import { AppConfig } from "./Config.ts"
 import { makeFsStorage } from "./FsStorage.ts"
 import { makeS3Storage } from "./S3Storage.ts"
@@ -62,7 +61,7 @@ export class ArtifactStorage extends Context.Service<
         yield* Effect.logInfo(`Storing artifacts in s3://${s3.bucket} at ${s3.endpoint}`)
         return Layer.effect(ArtifactStorage, makeS3Storage(s3))
       }
-      const dir = join(dataDir, "files")
+      const dir = (yield* Path.Path).join(dataDir, "files")
       yield* Effect.logInfo(`S3_ENDPOINT not set, storing artifacts on disk in ${dir}`)
       return Layer.effect(ArtifactStorage, makeFsStorage(dir))
     })

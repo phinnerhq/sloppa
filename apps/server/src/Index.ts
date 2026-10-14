@@ -1,10 +1,8 @@
 import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun"
 import { ArtifactId } from "@sloppa/api"
-import { Context, DateTime, Effect, Layer, Option, Result, Schema, Stream } from "effect"
+import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Result, Schema, Stream } from "effect"
 import { Base64Url } from "effect/encoding"
 import { SqlClient, SqlSchema } from "effect/sql"
-import { mkdirSync } from "node:fs"
-import { join } from "node:path"
 import { AppConfig } from "./Config.ts"
 import { ArtifactStorage, type StoredArtifact } from "./Storage.ts"
 
@@ -99,8 +97,10 @@ const Migrations = SqliteMigrator.layer({
 const Sqlite = Layer.unwrap(
   Effect.gen(function* () {
     const { dataDir } = yield* AppConfig
-    mkdirSync(dataDir, { recursive: true })
-    return Migrations.pipe(Layer.provideMerge(SqliteClient.layer({ filename: join(dataDir, "index.sqlite") })))
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    yield* fs.makeDirectory(dataDir, { recursive: true }).pipe(Effect.orDie)
+    return Migrations.pipe(Layer.provideMerge(SqliteClient.layer({ filename: path.join(dataDir, "index.sqlite") })))
   })
 )
 

@@ -44,6 +44,8 @@ const ArtifactsHandlers = HttpApiBuilder.group(
           artifacts.upload({
             name: file.name,
             contentType: file.contentType,
+            // The one Bun API left on purpose: a lazy, sized Blob over the multipart temp file. S3 needs the size
+            // up front for a Content-Length, and Effect's FileSystem would have to read the whole file to get one.
             body: Bun.file(file.path),
             repo: payload.repo,
             pr: payload.pr
