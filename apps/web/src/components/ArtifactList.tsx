@@ -251,13 +251,22 @@ const useRevalidate = (atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>
   }, [atom, result, refresh])
 }
 
-/** Cards and groups pop in with a little bounce and shrink away; whatever stays glides to its new spot. */
+/**
+ * Cards and groups pop in with a little bounce and shrink away; whatever stays glides to its new spot.
+ * The glide doesn't bounce: a spring's overshoot grows with the distance, and a group jumping from the
+ * bottom of the list to the top would fly past its spot and over the filters.
+ */
 const pop = {
   layout: "position",
   initial: { opacity: 0, scale: 0.85 },
   animate: { opacity: 1, scale: 1 },
   exit: { opacity: 0, scale: 0.85, transition: { duration: 0.15, ease: "easeIn" } },
-  transition: { type: "spring", bounce: 0.35, visualDuration: 0.35 }
+  transition: {
+    type: "spring",
+    bounce: 0.35,
+    visualDuration: 0.35,
+    layout: { type: "spring", bounce: 0, visualDuration: 0.4 }
+  }
 } as const
 
 const groupByPr = (artifacts: ReadonlyArray<Artifact>) => {
