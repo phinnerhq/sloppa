@@ -148,7 +148,7 @@ const Select = ({
                 </BaseSelect.ItemIndicator>
                 <BaseSelect.ItemText className="col-start-2 min-w-0 truncate">{option.label}</BaseSelect.ItemText>
                 {option.count !== undefined && (
-                  <span className="col-start-3 rounded-md border-2 border-ink bg-gold px-1.5 font-game text-xs group-data-highlighted:bg-cream">
+                  <span className="col-start-3 rounded-md border-2 border-ink bg-gold px-1.5 font-game text-xs group-data-selected:bg-cream">
                     {option.count}
                   </span>
                 )}

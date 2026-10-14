@@ -16,7 +16,14 @@ const Session = () => {
   const [token, setToken] = useAtom(tokenAtom)
   if (token === null) return null
   return (
-    <Button onClick={() => setToken(null)} aria-label="Sign out" title="Sign out" size="icon">
+    // Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line.
+    <Button
+      onClick={() => setToken(null)}
+      aria-label="Sign out"
+      title="Sign out"
+      size="icon"
+      className="[&>.pressable-face]:size-12.5"
+    >
       <SignOutIcon size={20} />
     </Button>
   )
@@ -170,11 +177,9 @@ const usePageTransitions = (route: Route, navigation: Navigation) => {
     const out = exiting.current
     let exit: Animation | undefined
     if (out !== null) {
-      // Pinned where it was on screen, whatever the new page scrolled to, and cut off where main begins
-      // so it never covers the header.
-      const offset = window.scrollY - leavingScroll.current
-      out.style.top = `${offset}px`
-      out.style.clipPath = `inset(${Math.max(0, -offset)}px 0 0 0)`
+      // Pinned where it was on screen, whatever the new page scrolled to. It may reach up behind the
+      // header, which sits above the page layer and rises in over it.
+      out.style.top = `${window.scrollY - leavingScroll.current}px`
       exit = out.animate([{ opacity: 1 }, { opacity: 0, transform: sinkTo(direction) }], {
         duration: 150,
         easing: EASE_IN,
@@ -227,10 +232,12 @@ const App = () => {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <Doodles />
-      <header ref={header} className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <a href="/" onClick={onLinkClick("/")} className="panel mt-4 flex items-center gap-3 py-1.5 pr-4 pl-2">
-          <Floppa mood="hiss" className="-mt-9 -mb-3 h-20 w-auto" />
-          <span className="font-game text-2xl leading-none">sloppa artifacts</span>
+      <header ref={header} className="relative z-10 mb-8 flex flex-wrap items-end justify-between gap-3">
+        <a href="/" onClick={onLinkClick("/")} className="pressable pressable-card mt-5">
+          <span className="pressable-face flex items-center gap-3 py-1.5 pr-4 pl-2">
+            <Floppa mood="hiss" className="-mt-9 -mb-3 h-20 w-auto" />
+            <span className="font-game text-2xl leading-none">sloppa artifacts</span>
+          </span>
         </a>
         <div className="flex items-center gap-2.5">
           <Session />

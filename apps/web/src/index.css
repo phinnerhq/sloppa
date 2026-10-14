@@ -205,13 +205,17 @@
       transition-timing-function: ease-in;
     }
   }
+  /* The current choice is the loud one (gold, outlined, checked); the row under the pointer or keyboard only tints. */
   .game-option {
-    @apply grid cursor-pointer grid-cols-[1rem_1fr_auto] items-center gap-2 rounded-lg border-2 border-transparent px-2.5 py-2 font-bold text-ink outline-none select-none;
+    @apply grid cursor-pointer grid-cols-[1rem_1fr_auto] items-center gap-2 rounded-lg border-2 border-transparent px-2.5 py-2 font-bold text-ink transition-colors duration-75 outline-none select-none;
     &[data-highlighted] {
+      @apply bg-ink/8;
+    }
+    &[data-selected] {
       @apply border-ink bg-gold;
     }
-    &[data-selected]:not([data-highlighted]) {
-      @apply bg-belly;
+    &[data-selected][data-highlighted] {
+      background-color: #fff0b8;
     }
   }
 
@@ -346,6 +350,12 @@
     opacity: 0;
   }
 }
+@keyframes rise-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
 @keyframes pop-in {
   0% {
     transform: translateY(12px) scale(0.9);
@@ -390,6 +400,10 @@
 @utility animate-pop-in {
   animation: pop-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both;
 }
+/* The calm sibling of pop-in, for content that arrives along with a page transition. */
+@utility animate-rise-in {
+  animation: rise-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 @utility animate-pop-out {
   animation: pop-out 0.2s cubic-bezier(0.5, 0, 0.75, 0) both;
 }
@@ -401,6 +415,7 @@
   .animate-flop-loop,
   .animate-bob,
   .animate-pop-in,
+  .animate-rise-in,
   .animate-pop-out,
   .skeleton,
   .wave,

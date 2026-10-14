@@ -117,10 +117,10 @@ const Stat = ({ label, children }: { label: string; children: ReactNode }) => (
 const Inspector = ({ artifact }: { artifact: Artifact }) => {
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[1fr_300px]">
-      <div className="panel animate-pop-in overflow-hidden">
+      <div className="panel animate-rise-in overflow-hidden">
         <Preview artifact={artifact} />
       </div>
-      <aside className="panel animate-pop-in space-y-4 p-4">
+      <aside className="panel animate-rise-in space-y-4 p-4">
         <h1 className="font-game text-2xl leading-tight break-all">{artifact.name}</h1>
         <dl>
           {artifact.pr !== undefined && (
