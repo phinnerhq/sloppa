@@ -24,11 +24,29 @@
   --color-belly: #f6ead7;
 }
 
+/*
+ * The titles' ink outline: a 3px ring of hard shadows, plus its lower half again 3px down for depth.
+ * Shadows rather than -webkit-text-stroke, whose mitered corners grow spikes on sharp glyphs (the 4)
+ * and which Chromium won't round with stroke-linejoin.
+ */
+:root {
+  --title-outline:
+    3px 0px 0 var(--color-ink), 2.77px 1.15px 0 var(--color-ink), 2.12px 2.12px 0 var(--color-ink),
+    1.15px 2.77px 0 var(--color-ink), 0px 3px 0 var(--color-ink), -1.15px 2.77px 0 var(--color-ink),
+    -2.12px 2.12px 0 var(--color-ink), -2.77px 1.15px 0 var(--color-ink), -3px 0px 0 var(--color-ink),
+    -2.77px -1.15px 0 var(--color-ink), -2.12px -2.12px 0 var(--color-ink), -1.15px -2.77px 0 var(--color-ink),
+    0px -3px 0 var(--color-ink), 1.15px -2.77px 0 var(--color-ink), 2.12px -2.12px 0 var(--color-ink),
+    2.77px -1.15px 0 var(--color-ink), 3px 3px 0 var(--color-ink), 2.77px 4.15px 0 var(--color-ink),
+    2.12px 5.12px 0 var(--color-ink), 1.15px 5.77px 0 var(--color-ink), 0px 6px 0 var(--color-ink),
+    -1.15px 5.77px 0 var(--color-ink), -2.12px 5.12px 0 var(--color-ink), -2.77px 4.15px 0 var(--color-ink),
+    -3px 3px 0 var(--color-ink);
+}
+
 @layer base {
   body {
     @apply min-h-screen font-sans text-ink antialiased;
     /* Nunito sets tight at its heavier weights, which this UI leans on. */
-    letter-spacing: 0.01em;
+    letter-spacing: 0.02em;
     background:
       radial-gradient(60% 40% at 15% 8%, rgb(255 255 255 / 0.55), transparent 70%),
       radial-gradient(45% 30% at 85% 18%, rgb(255 255 255 / 0.4), transparent 70%),
@@ -171,23 +189,21 @@
   /* White game text with a real outline: the stroke is painted behind the fill, so only its outer half shows. */
   .game-title {
     @apply font-game tracking-wide text-white;
-    -webkit-text-stroke: 6px var(--color-ink);
-    paint-order: stroke fill;
-    text-shadow: 0 3px 0 var(--color-ink);
+    text-shadow: var(--title-outline);
   }
   /*
-   * Selected titles keep their outline (Gecko can't restyle it in ::selection anyway) and turn gold over
-   * a faint ink band: a gold highlight box would stop short of the outline at both ends.
+   * Selected titles keep their outline and turn gold over a faint ink band:
+   * a gold highlight box would stop short of the outline at both ends.
    */
   .game-title::selection {
     color: var(--color-gold);
     background: rgb(29 36 51 / 0.2);
-    text-shadow: 0 3px 0 var(--color-ink);
+    text-shadow: var(--title-outline);
   }
 
   /* The dropdowns' trigger, dressed as a panel (see Select in ArtifactList.tsx). */
   .game-select {
-    @apply flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl border-[3px] border-ink bg-cream py-2.5 pr-4 pl-4 text-left font-bold text-ink shadow-[0_4px_0_var(--color-ink)] transition-colors select-none hover:bg-white data-popup-open:bg-white;
+    @apply flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl border-[3px] border-ink bg-cream py-2.5 pr-4 pl-4 text-left font-bold tracking-[0.03em] text-ink shadow-[0_4px_0_var(--color-ink)] transition-colors select-none hover:bg-white data-popup-open:bg-white;
   }
   /* Its popup: a panel that pops out of the trigger. */
   .game-picker {
@@ -208,7 +224,7 @@
   }
   /* The current choice is the loud one (gold, outlined, checked); the row under the pointer or keyboard only tints. */
   .game-option {
-    @apply grid cursor-pointer grid-cols-[1rem_1fr_auto] items-center gap-2 rounded-lg border-2 border-transparent px-2.5 py-2 font-bold text-ink transition-colors duration-75 outline-none select-none;
+    @apply grid cursor-pointer grid-cols-[1rem_1fr_auto] items-center gap-2 rounded-lg border-2 border-transparent px-2.5 py-2 font-bold tracking-[0.03em] text-ink transition-colors duration-75 outline-none select-none;
     &[data-highlighted] {
       @apply bg-ink/8;
     }
