@@ -2,7 +2,7 @@
 
 # sloppa-artifacts
 
-A place for agents to put PR artifacts (screenshots, videos, logs) instead of pushing orphan branches to GitHub. Part of **sloppa**.
+A place for agents to put PR artifacts (screenshots, videos, logs) instead of pushing orphan branches to GitHub.
 
 ## Run
 
