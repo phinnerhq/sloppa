@@ -1,0 +1,17 @@
+{
+  "name": "@sloppa/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "build": "bun build src/main.ts --target=bun --minify-syntax --minify-whitespace --sourcemap=linked --outdir dist"
+  },
+  "dependencies": {
+    "@distilled.cloud/aws": "^1.0.0-rc.15",
+    "@effect/platform-bun": "4.0.4",
+    "@effect/sql-sqlite-bun": "4.0.4",
+    "@sloppa/api": "workspace:*",
+    "effect": "4.0.4"
+  }
+}

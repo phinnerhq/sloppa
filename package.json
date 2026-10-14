@@ -1,0 +1,34 @@
+{
+  "name": "sloppa-artifacts",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "bun --filter '@sloppa/server' --filter '@sloppa/web' dev",
+    "build": "bun --filter '@sloppa/web' --filter '@sloppa/server' build",
+    "start": "bun apps/server/src/main.ts",
+    "typecheck": "tsc -p .",
+    "doodles": "bun scripts/doodles.ts",
+    "prepare": "effect-tsgo patch --typescript --oxlint",
+    "lint": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "check": "tsc -p . && oxlint && oxfmt --check"
+  },
+  "dependencies": {
+    "effect": "4.0.4"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "0.53.0",
+    "@phosphor-icons/core": "^2.1.1",
+    "@types/bun": "^1.4.3",
+    "oxfmt": "0.73.0",
+    "oxlint": "1.88.0",
+    "oxlint-tsgolint": "7.0.2004",
+    "typescript": "7.0.2"
+  },
+  "packageManager": "bun@1.4.3"
+}
