@@ -1,0 +1,196 @@
+@import "@fontsource/lilita-one/400.css";
+@import "@fontsource/nunito/600.css";
+@import "@fontsource/nunito/800.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
+  --font-game: "Lilita One", "Nunito", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  /* Sky, ink outlines... */
+  --color-sky: #5ab8ff;
+  --color-sky-deep: #3a9cf0;
+  --color-ink: #1d2433;
+  --color-cash: #1c9a3f;
+  --color-gold: #ffe58a;
+  --color-bingus: #f7a8c4;
+  --color-danger: #ff5a4f;
+  /* ...with a bit of Big Sloppa: caracal fur on cream panels. */
+  --color-cream: #fffaf2;
+  --color-fur: #c8945a;
+  --color-fur-dark: #8a5a2b;
+  --color-belly: #f6ead7;
+}
+
+@layer base {
+  body {
+    @apply min-h-screen font-sans text-ink antialiased;
+    background:
+      radial-gradient(60% 40% at 15% 8%, rgb(255 255 255 / 0.55), transparent 70%),
+      radial-gradient(45% 30% at 85% 18%, rgb(255 255 255 / 0.4), transparent 70%),
+      linear-gradient(180deg, var(--color-sky) 0%, #8fd0ff 55%, #bfe6ff 100%);
+    background-attachment: fixed;
+  }
+  /* The doodles drift diagonally on their own layer: a composited transform, no repaints. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: -520px 0 0 -520px;
+    z-index: -1;
+    pointer-events: none;
+    background: url("./assets/doodles.svg") 0 0 / 520px 520px;
+    animation: drift 150s linear infinite;
+  }
+  ::selection {
+    background: var(--color-gold);
+  }
+}
+
+@layer components {
+  /* Roblox-ish panel: cream fill, thick ink outline, hard bottom shadow. */
+  .panel {
+    @apply rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)];
+  }
+
+  .game-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border-[3px] border-ink px-4 py-2 font-game text-[15px] tracking-wide text-ink
+      shadow-[0_4px_0_var(--color-ink)] transition-[transform,box-shadow,filter] duration-75 select-none
+      hover:brightness-105 active:translate-y-1 active:shadow-[0_0_0_var(--color-ink)] disabled:opacity-60 disabled:active:translate-y-0;
+  }
+  .game-btn-green {
+    @apply bg-[#4cd964] text-white [text-shadow:0_2px_0_var(--color-ink)];
+  }
+  .game-btn-blue {
+    @apply bg-sky text-white [text-shadow:0_2px_0_var(--color-ink)];
+  }
+  .game-btn-gold {
+    @apply bg-gold;
+  }
+  .game-btn-red {
+    @apply bg-danger text-white [text-shadow:0_2px_0_var(--color-ink)];
+  }
+  .game-btn-cream {
+    @apply bg-cream;
+  }
+
+  /* White game text with a real outline: the stroke is painted behind the fill, so only its outer half shows. */
+  .game-title {
+    @apply font-game tracking-wide text-white;
+    -webkit-text-stroke: 6px var(--color-ink);
+    paint-order: stroke fill;
+    text-shadow: 0 3px 0 var(--color-ink);
+  }
+
+  /* Native select (keyboard + mobile pickers for free), dressed as a panel; the chevron is a Phosphor icon on top. */
+  .game-select {
+    @apply min-w-0 cursor-pointer appearance-none rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)] py-2.5 pr-10 pl-4 font-bold text-ink focus:outline-none focus:ring-4 focus:ring-gold md:max-w-64;
+  }
+
+  .checkerboard {
+    background-color: #eef2f7;
+    background-image:
+      linear-gradient(45deg, #dde4ee 25%, transparent 25%), linear-gradient(-45deg, #dde4ee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #dde4ee 75%), linear-gradient(-45deg, transparent 75%, #dde4ee 75%);
+    background-size: 16px 16px;
+    background-position:
+      0 0,
+      0 8px,
+      8px -8px,
+      -8px 0;
+  }
+}
+
+/* The floppa flops: a squash-and-wobble, on hover and while loading. */
+@keyframes flop {
+  0%,
+  100% {
+    transform: rotate(0) scale(1, 1);
+  }
+  20% {
+    transform: rotate(-8deg) scale(1.06, 0.94);
+  }
+  45% {
+    transform: rotate(6deg) scale(0.96, 1.05);
+  }
+  70% {
+    transform: rotate(-3deg) scale(1.02, 0.98);
+  }
+}
+/* One tile per loop, so it wraps seamlessly. */
+@keyframes drift {
+  to {
+    transform: translate(520px, 520px);
+  }
+}
+/* The stat cards' liquid: each wave layer is twice as wide as its card and slides by one period. */
+@keyframes slosh {
+  0% {
+    transform: translateX(0) translateY(0);
+  }
+  50% {
+    transform: translateX(-25%) translateY(8%);
+  }
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+}
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes pop-in {
+  0% {
+    transform: translateY(12px) scale(0.9);
+    opacity: 0;
+  }
+  60% {
+    transform: translateY(-2px) scale(1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@utility animate-flop {
+  animation: flop 0.6s ease-in-out;
+  transform-origin: 50% 85%;
+}
+@utility animate-flop-loop {
+  animation: flop 0.9s ease-in-out infinite;
+  transform-origin: 50% 85%;
+}
+@utility wave {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200%;
+  height: 100%;
+  background-color: currentColor;
+  mask: url("./assets/wave.svg") repeat-x 0 0 / 50% 100%;
+  animation: slosh 6s linear infinite;
+}
+@utility animate-bob {
+  animation: bob 2.4s ease-in-out infinite;
+}
+@utility animate-pop-in {
+  animation: pop-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-flop,
+  .animate-flop-loop,
+  .animate-bob,
+  .animate-pop-in,
+  .wave,
+  body::before {
+    animation: none;
+  }
+}
