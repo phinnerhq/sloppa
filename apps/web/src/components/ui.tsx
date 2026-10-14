@@ -191,8 +191,21 @@ export const Loading = ({ label = "loading…" }: { label?: string }) => (
   </div>
 )
 
-export const Notice = ({ title, mood = "stare", children }: { title: string; mood?: Mood; children?: ReactNode }) => (
-  <div className="panel animate-pop-in mx-auto flex max-w-xl flex-col items-center gap-3 px-6 py-8 text-center">
+/** `bare` drops the card, for notices shown inside a panel that's already one. */
+export const Notice = ({
+  title,
+  mood = "stare",
+  bare = false,
+  children
+}: {
+  title: string
+  mood?: Mood
+  bare?: boolean
+  children?: ReactNode
+}) => (
+  <div
+    className={`${bare ? "" : "panel animate-pop-in"} mx-auto flex max-w-xl flex-col items-center gap-3 px-6 py-8 text-center`}
+  >
     <Floppa mood={mood} className={mood === "loaf" ? "h-28 w-auto" : "h-32 w-auto"} />
     <p className="font-game text-2xl">{title}</p>
     {children && <div className="text-sm font-semibold text-ink/70">{children}</div>}

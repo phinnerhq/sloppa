@@ -20,7 +20,7 @@ const TextPreview = ({ url }: { url: string }) => {
   const result = useAtomValue(textPreviewAtom(url))
   return AsyncResult.match(result, {
     onInitial: () => <Loading label="loading file…" />,
-    onFailure: () => <Notice title="couldn't load this file" mood="hiss" />,
+    onFailure: () => <Notice title="couldn't load this file" mood="hiss" bare />,
     onSuccess: ({ value }) => (
       <pre className="max-h-[70vh] overflow-auto bg-[#1d2433] p-5 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-[#e8edf6]">
         {value}
@@ -30,15 +30,13 @@ const TextPreview = ({ url }: { url: string }) => {
 }
 
 const TooBig = ({ artifact, title }: { artifact: Artifact; title: string }) => (
-  <div className="p-6">
-    <Notice title={title} mood="loaf">
-      <div className="mt-2">
-        <LinkButton href={`${artifact.rawUrl}?download`} download tone="gold">
-          download {formatSize(artifact.size)}
-        </LinkButton>
-      </div>
-    </Notice>
-  </div>
+  <Notice title={title} mood="loaf" bare>
+    <div className="mt-2">
+      <LinkButton href={`${artifact.rawUrl}?download`} download tone="gold">
+        download {formatSize(artifact.size)}
+      </LinkButton>
+    </div>
+  </Notice>
 )
 
 const Preview = ({ artifact }: { artifact: Artifact }) => {
