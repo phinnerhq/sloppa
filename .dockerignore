@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+.git
+.gitignore
+.dockerignore
+Dockerfile
+.env
+.env.*
+.data
+*.log
+README.md
+scripts/mascot
