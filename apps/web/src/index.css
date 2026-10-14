@@ -1,13 +1,12 @@
 @import "@fontsource/lilita-one/400.css";
-@import "@fontsource/nunito/600.css";
-@import "@fontsource/nunito/800.css";
+@import "@fontsource-variable/nunito";
 @import "@fontsource-variable/jetbrains-mono";
 @import "overlayscrollbars/overlayscrollbars.css";
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif;
-  --font-game: "Lilita One", "Nunito", ui-sans-serif, sans-serif;
+  --font-sans: "Nunito Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-game: "Lilita One", "Nunito Variable", ui-sans-serif, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
 
   /* Sky, ink outlines... */
@@ -28,6 +27,8 @@
 @layer base {
   body {
     @apply min-h-screen font-sans text-ink antialiased;
+    /* Nunito sets tight at its heavier weights, which this UI leans on. */
+    letter-spacing: 0.01em;
     background:
       radial-gradient(60% 40% at 15% 8%, rgb(255 255 255 / 0.55), transparent 70%),
       radial-gradient(45% 30% at 85% 18%, rgb(255 255 255 / 0.4), transparent 70%),
