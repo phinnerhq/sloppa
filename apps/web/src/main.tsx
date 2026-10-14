@@ -1,5 +1,6 @@
 import { RegistryProvider, useAtom } from "@effect/atom-react"
 import { IconContext, SignOutIcon } from "@phosphor-icons/react"
+import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
@@ -251,7 +252,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RegistryProvider>
       <IconContext.Provider value={{ weight: "bold" }}>
-        <App />
+        <MotionConfig reducedMotion="user">
+          <App />
+        </MotionConfig>
       </IconContext.Provider>
     </RegistryProvider>
   </StrictMode>

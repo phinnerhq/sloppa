@@ -17,6 +17,7 @@
     "@phosphor-icons/react": "^2.1.10",
     "@sloppa/api": "workspace:*",
     "effect": "4.0.4",
+    "motion": "^14.2.0",
     "overlayscrollbars": "^2.16.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

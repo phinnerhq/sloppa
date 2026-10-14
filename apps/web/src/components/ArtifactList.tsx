@@ -1,10 +1,11 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Select as BaseSelect } from "@base-ui/react/select"
+import { AnimatePresence, motion } from "motion/react"
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react"
 import type { Artifact, Stats } from "@sloppa/api"
 import { Predicate } from "effect"
 import { AsyncResult, type Atom } from "effect/reactivity"
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { artifactPagesAtom, type ListFilter, prsAtom, reposAtom, statsAtom, tokenAtom } from "../api.ts"
 import { colorFor, formatAgo, formatAgoShort, formatSize, kindOf, prLabel } from "../format.ts"
 import { onLinkClick, useQueryParam } from "../router.ts"
@@ -47,12 +48,22 @@ const Login = ({ invalid }: { invalid: boolean }) => {
 /** Two wave layers drifting against each other, offset per card so they never slosh in sync. */
 const Liquid = ({ color, delay }: { color: string; delay: number }) => (
   <div aria-hidden className="absolute inset-x-0 bottom-0 h-1/2" style={{ color }}>
-    <div
-      className="wave opacity-35"
+    <Wave
+      className="opacity-35"
       style={{ animationDuration: "9s", animationDirection: "reverse", animationDelay: `${delay * 2}s` }}
     />
-    <div className="wave opacity-60" style={{ animationDelay: `${delay}s` }} />
+    <Wave className="opacity-60" style={{ animationDelay: `${delay}s` }} />
   </div>
+)
+
+/**
+ * Two wave periods drawn as one path, twice the card's width, sliding by one period per loop.
+ * A real path rather than a repeated CSS mask: Gecko stops repeating masks on moving layers.
+ */
+const Wave = ({ className, style }: { className: string; style: CSSProperties }) => (
+  <svg viewBox="0 0 400 40" preserveAspectRatio="none" className={`wave ${className}`} style={style}>
+    <path d="M0 12 Q50 0 100 12 T200 12 T300 12 T400 12 V40 H0Z" fill="currentColor" />
+  </svg>
 )
 
 const StatCard = ({
@@ -228,15 +239,26 @@ const InventorySkeleton = () => (
   </section>
 )
 
-/** Cached data shows instantly on a return visit; refetch it in the background once, on mount. */
+/** Cached data shows instantly when an atom is picked back up; refetch it in the background, once per pick-up. */
 const useRevalidate = (atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>) => {
   const result = useAtomValue(atom)
   const refresh = useAtomRefresh(atom)
-  const cached = useRef(AsyncResult.isSuccess(result))
+  const checked = useRef<unknown>(null)
   useEffect(() => {
-    if (cached.current) refresh()
-  }, [refresh])
+    if (checked.current === atom) return
+    checked.current = atom
+    if (AsyncResult.isSuccess(result) && !result.waiting) refresh()
+  }, [atom, result, refresh])
 }
+
+/** Cards and groups pop in with a little bounce and shrink away; whatever stays glides to its new spot. */
+const pop = {
+  layout: "position",
+  initial: { opacity: 0, scale: 0.85 },
+  animate: { opacity: 1, scale: 1 },
+  exit: { opacity: 0, scale: 0.85, transition: { duration: 0.15, ease: "easeIn" } },
+  transition: { type: "spring", bounce: 0.35, visualDuration: 0.35 }
+} as const
 
 const groupByPr = (artifacts: ReadonlyArray<Artifact>) => {
   const groups = new Map<string | undefined, Array<Artifact>>()
@@ -249,33 +271,39 @@ const groupByPr = (artifacts: ReadonlyArray<Artifact>) => {
 }
 
 const Inventory = ({ artifacts }: { artifacts: ReadonlyArray<Artifact> }) => (
-  <div className="space-y-8">
-    {groupByPr(artifacts).map(([pr, items]) => (
-      <section key={pr ?? "none"} className="space-y-3">
-        <h2 className="flex flex-wrap items-center gap-2">
-          {pr === undefined ? (
-            <span className="game-title text-xl">no PR</span>
-          ) : (
-            <a
-              href={pr}
-              target="_blank"
-              rel="noreferrer"
-              className="game-title text-xl transition-colors hover:text-sky"
-            >
-              {prLabel(pr)}
-            </a>
-          )}
-          <span className="rounded-md border-2 border-ink bg-gold px-2 font-game text-xs">
-            {items.length} item{items.length === 1 ? "" : "s"}
-          </span>
-        </h2>
-        <div className={GRID}>
-          {items.map((artifact) => (
-            <Slot key={artifact.id} artifact={artifact} />
-          ))}
-        </div>
-      </section>
-    ))}
+  <div className="relative flex flex-col gap-8">
+    <AnimatePresence mode="popLayout" initial={false}>
+      {groupByPr(artifacts).map(([pr, items]) => (
+        <motion.section key={pr ?? "none"} {...pop} className="space-y-3">
+          <h2 className="flex flex-wrap items-center gap-2">
+            {pr === undefined ? (
+              <span className="game-title text-xl">no PR</span>
+            ) : (
+              <a
+                href={pr}
+                target="_blank"
+                rel="noreferrer"
+                className="game-title text-xl transition-colors hover:text-sky"
+              >
+                {prLabel(pr)}
+              </a>
+            )}
+            <span className="rounded-md border-2 border-ink bg-gold px-2 font-game text-xs">
+              {items.length} item{items.length === 1 ? "" : "s"}
+            </span>
+          </h2>
+          <div className={`${GRID} relative`}>
+            <AnimatePresence mode="popLayout" initial={false}>
+              {items.map((artifact) => (
+                <motion.div key={artifact.id} {...pop}>
+                  <Slot artifact={artifact} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </motion.section>
+      ))}
+    </AnimatePresence>
   </div>
 )
 
@@ -305,13 +333,21 @@ const matches = (search: string) => {
     [a.name, a.id, a.pr ?? "", a.repo ?? "", a.contentType].some((f) => f.toLowerCase().includes(needle))
 }
 
+type PagesValue = AsyncResult.AsyncResult.Success<Atom.Type<ReturnType<typeof artifactPagesAtom>>>
+
 const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
   const result = useAtomValue(artifactPagesAtom(filter))
   const loadMore = useAtomSet(artifactPagesAtom(filter))
   const filtered = filter.repo !== "" || filter.pr !== "" || search.trim() !== ""
   const keep = useMemo(() => matches(search), [search])
   useRevalidate(artifactPagesAtom(filter))
-  return AsyncResult.matchWithError(result, {
+  // A filter that's never been loaded keeps the previous results on screen, dimmed, until its own land:
+  // the cards then animate from one set to the other instead of flashing through a skeleton.
+  const [last, setLast] = useState<PagesValue | null>(null)
+  if (AsyncResult.isSuccess(result) && result.value !== last) setLast(result.value)
+  const shown = AsyncResult.isInitial(result) && last !== null ? AsyncResult.success(last, { waiting: true }) : result
+  const stale = shown !== result
+  return AsyncResult.matchWithError(shown, {
     onInitial: () => <InventorySkeleton />,
     onError: (error) =>
       Predicate.isTagged(error, "Unauthorized") ? (
@@ -332,7 +368,7 @@ const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
       const hasMore = value.items.at(-1)?.nextCursor !== undefined
       if (all.length === 0 && !filtered) return <NoArtifacts />
       return (
-        <div className="space-y-10">
+        <div aria-busy={stale} className={`space-y-10 transition-opacity duration-200 ${stale ? "opacity-60" : ""}`}>
           {visible.length === 0 ? (
             <Notice title="nothing matches these filters" mood="loaf" />
           ) : (
@@ -340,7 +376,7 @@ const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
           )}
           {hasMore && (
             <div className="flex justify-center">
-              <Button tone="blue" disabled={waiting} onClick={() => loadMore()}>
+              <Button tone="blue" disabled={waiting || stale} onClick={() => loadMore()}>
                 {waiting ? "loading…" : "load more"}
               </Button>
             </div>
@@ -376,7 +412,7 @@ const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
         />
         <PrSelect repo={repo} pr={pr} onChange={setPr} />
       </div>
-      <Pages key={`${repo}|${pr}`} filter={{ repo, pr }} search={search} />
+      <Pages filter={{ repo, pr }} search={search} />
     </div>
   )
 }
