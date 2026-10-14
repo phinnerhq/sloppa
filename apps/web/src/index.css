@@ -28,6 +28,11 @@
  * The titles' ink outline: a 3px ring of hard shadows, plus its lower half again 3px down for depth.
  * Shadows rather than -webkit-text-stroke, whose mitered corners grow spikes on sharp glyphs (the 4)
  * and which Chromium won't round with stroke-linejoin.
+ *
+ * Generated with r = 3px, n = 16:
+ *   ring:  for i in 0..n-1, θ = 2πi/n  →  (r·cos θ, r·sin θ)
+ *   depth: every ring point with sin θ ≥ 0, shifted down by r  →  (r·cos θ, r·sin θ + r)
+ * Keep neighbouring points under ~1px apart (2πr/n) when changing r, or the edge turns scalloped.
  */
 :root {
   --title-outline:
