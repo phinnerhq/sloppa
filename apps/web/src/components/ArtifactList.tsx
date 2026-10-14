@@ -1,13 +1,13 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
+import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { CaretDownIcon } from "@phosphor-icons/react"
 import type { Artifact, Stats } from "@sloppa/api"
 import { Predicate } from "effect"
-import { AsyncResult } from "effect/reactivity"
-import { type ReactNode, useMemo, useState } from "react"
+import { AsyncResult, type Atom } from "effect/reactivity"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { artifactPagesAtom, type ListFilter, prsAtom, reposAtom, statsAtom, tokenAtom } from "../api.ts"
 import { colorFor, formatAgo, formatAgoShort, formatSize, kindOf, prLabel } from "../format.ts"
 import { onLinkClick, useQueryParam } from "../router.ts"
-import { CopyButton, extensionOf, Floppa, Loading, Notice } from "./ui.tsx"
+import { Button, CopyButton, extensionOf, Floppa, Notice } from "./ui.tsx"
 
 const Login = ({ invalid }: { invalid: boolean }) => {
   const setToken = useAtomSet(tokenAtom)
@@ -34,11 +34,11 @@ const Login = ({ invalid }: { invalid: boolean }) => {
         onChange={(e) => setValue(e.target.value)}
         placeholder="token"
         aria-label="Token"
-        className="w-full rounded-xl border-[3px] border-ink bg-white px-4 py-2.5 font-semibold placeholder:text-ink/40 focus:outline-none focus:ring-4 focus:ring-gold"
+        className="panel game-field w-full bg-white px-4 py-2.5 font-semibold placeholder:text-ink/40"
       />
-      <button type="submit" className="game-btn game-btn-green w-full text-lg">
+      <Button type="submit" tone="green" size="lg" className="w-full">
         sign in
-      </button>
+      </Button>
     </form>
   )
 }
@@ -69,26 +69,29 @@ const StatCard = ({
     <Liquid color={color} delay={delay} />
     <div className="relative">
       <p className="text-xs font-extrabold tracking-wide text-ink/55 uppercase">{label}</p>
-      <p className="truncate font-game text-2xl leading-tight">{children}</p>
+      <p className="truncate font-game text-2xl leading-tight">
+        {children ?? <span className="skeleton inline-block h-6 w-16 align-middle" />}
+      </p>
     </div>
   </div>
 )
 
-const StatsRow = ({ stats }: { stats: Stats }) => (
+/** `null` while loading: the same cards, with placeholders, so nothing shifts when the numbers land. */
+const StatsRow = ({ stats }: { stats: Stats | null }) => (
   <div className="flex items-end gap-3">
     <Floppa mood="loaf" className="hidden h-20 w-auto shrink-0 sm:block" />
     <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard label="Artifacts" color="#5ab8ff" delay={0}>
-        {stats.total.toLocaleString("en")}
+        {stats?.total.toLocaleString("en")}
       </StatCard>
       <StatCard label="Storage" color="#4cd964" delay={-1.7}>
-        {formatSize(stats.totalBytes)}
+        {stats && formatSize(stats.totalBytes)}
       </StatCard>
       <StatCard label="Uploaded today" color="#ffb340" delay={-3.1}>
-        {stats.last24h.toLocaleString("en")}
+        {stats?.last24h.toLocaleString("en")}
       </StatCard>
       <StatCard label="Last upload" color="#f78fb6" delay={-4.4}>
-        {stats.lastUploadAt === undefined ? "never" : formatAgo(stats.lastUploadAt)}
+        {stats && (stats.lastUploadAt === undefined ? "never" : formatAgo(stats.lastUploadAt))}
       </StatCard>
     </div>
   </div>
@@ -106,7 +109,12 @@ const Select = ({
   children: ReactNode
 }) => (
   <div className="relative">
-    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} className="game-select w-full">
+    <select
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="game-select game-field w-full"
+    >
       {children}
     </select>
     <CaretDownIcon size={14} className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2" />
@@ -130,6 +138,7 @@ const RepoSelect = ({ repo, onChange }: { repo: string; onChange: (repo: string)
 
 const PrSelect = ({ repo, pr, onChange }: { repo: string; pr: string; onChange: (pr: string) => void }) => {
   const prs = AsyncResult.getOrElse(useAtomValue(prsAtom(repo)), () => [])
+  useRevalidate(prsAtom(repo))
   // Within one repo "#42" is enough; across repos keep the owner/repo prefix.
   const label = (url: string) => (repo === "" ? prLabel(url) : prLabel(url).replace(/^.*(#\d+)$/, "$1"))
   return (
@@ -161,27 +170,53 @@ const Slot = ({ artifact }: { artifact: Artifact }) => {
   const media = kindOf(artifact) === "image" || kindOf(artifact) === "video"
   const ago = formatAgoShort(artifact.createdAt)
   return (
-    <a
-      href={path}
-      onClick={onLinkClick(path)}
-      className="panel group block p-2 transition-transform duration-100 hover:-translate-y-1 hover:rotate-[-1deg]"
-    >
-      <div
-        className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg border-[3px] border-ink ${
-          media ? "checkerboard" : ""
-        }`}
-        style={media ? undefined : { backgroundColor: colorFor(extensionOf(artifact.name)) }}
-      >
-        <Thumbnail artifact={artifact} />
+    <a href={path} onClick={onLinkClick(path)} className="pressable pressable-card block">
+      <div className="pressable-face p-2">
+        <div
+          className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg border-[3px] border-ink ${
+            media ? "checkerboard" : ""
+          }`}
+          style={media ? undefined : { backgroundColor: colorFor(extensionOf(artifact.name)) }}
+        >
+          <Thumbnail artifact={artifact} />
+        </div>
+        <p className="mt-1.5 truncate px-0.5 text-sm font-extrabold" title={artifact.name}>
+          {artifact.name}
+        </p>
+        <p className="truncate px-0.5 text-[11px] font-bold text-ink/55">
+          {formatSize(artifact.size)} · {ago === "now" ? "just now" : `${ago} ago`}
+        </p>
       </div>
-      <p className="mt-1.5 truncate px-0.5 text-sm font-extrabold" title={artifact.name}>
-        {artifact.name}
-      </p>
-      <p className="truncate px-0.5 text-[11px] font-bold text-ink/55">
-        {formatSize(artifact.size)} · {ago === "now" ? "just now" : `${ago} ago`}
-      </p>
     </a>
   )
+}
+
+const GRID = "grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6"
+
+/** A first load: one group's worth of empty slots, sized like the real ones. */
+const InventorySkeleton = () => (
+  <section aria-busy aria-label="Loading artifacts" className="space-y-3">
+    <div className="skeleton h-7 w-56 rounded-lg" />
+    <div className={GRID}>
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="panel mt-1 p-2">
+          <div className="skeleton aspect-square rounded-lg" />
+          <div className="skeleton mt-2.5 h-3.5 w-3/4" />
+          <div className="skeleton mt-2 mb-0.5 h-2.5 w-1/2" />
+        </div>
+      ))}
+    </div>
+  </section>
+)
+
+/** Cached data shows instantly on a return visit; refetch it in the background once, on mount. */
+const useRevalidate = (atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>) => {
+  const result = useAtomValue(atom)
+  const refresh = useAtomRefresh(atom)
+  const cached = useRef(AsyncResult.isSuccess(result))
+  useEffect(() => {
+    if (cached.current) refresh()
+  }, [refresh])
 }
 
 const groupByPr = (artifacts: ReadonlyArray<Artifact>) => {
@@ -202,7 +237,12 @@ const Inventory = ({ artifacts }: { artifacts: ReadonlyArray<Artifact> }) => (
           {pr === undefined ? (
             <span className="game-title text-xl">no PR</span>
           ) : (
-            <a href={pr} target="_blank" rel="noreferrer" className="game-title text-xl hover:underline">
+            <a
+              href={pr}
+              target="_blank"
+              rel="noreferrer"
+              className="game-title text-xl transition-colors hover:text-sky"
+            >
               {prLabel(pr)}
             </a>
           )}
@@ -210,7 +250,7 @@ const Inventory = ({ artifacts }: { artifacts: ReadonlyArray<Artifact> }) => (
             {items.length} item{items.length === 1 ? "" : "s"}
           </span>
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+        <div className={GRID}>
           {items.map((artifact) => (
             <Slot key={artifact.id} artifact={artifact} />
           ))}
@@ -233,7 +273,7 @@ const NoArtifacts = () => {
         <code className="max-w-full rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-left font-mono text-xs break-all text-ink">
           {command}
         </code>
-        <CopyButton value={command} label="copy" toast="copied" color="green" />
+        <CopyButton value={command} label="copy" toast="copied" tone="green" />
       </div>
     </Notice>
   )
@@ -251,8 +291,9 @@ const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
   const loadMore = useAtomSet(artifactPagesAtom(filter))
   const filtered = filter.repo !== "" || filter.pr !== "" || search.trim() !== ""
   const keep = useMemo(() => matches(search), [search])
+  useRevalidate(artifactPagesAtom(filter))
   return AsyncResult.matchWithError(result, {
-    onInitial: () => <Loading />,
+    onInitial: () => <InventorySkeleton />,
     onError: (error) =>
       Predicate.isTagged(error, "Unauthorized") ? (
         <Login invalid />
@@ -280,9 +321,9 @@ const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
           )}
           {hasMore && (
             <div className="flex justify-center">
-              <button type="button" disabled={waiting} onClick={() => loadMore()} className="game-btn game-btn-blue">
+              <Button tone="blue" disabled={waiting} onClick={() => loadMore()}>
                 {waiting ? "loading…" : "load more"}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -291,14 +332,13 @@ const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
   })
 }
 
-const Dashboard = () => {
+const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
   const [repo, setRepo] = useQueryParam("repo")
   const [pr, setPr] = useQueryParam("pr")
   const [search, setSearch] = useQueryParam("q")
-  const stats = useAtomValue(statsAtom)
   return (
     <div className="space-y-8">
-      {AsyncResult.isSuccess(stats) && <StatsRow stats={stats.value} />}
+      {stats !== undefined && <StatsRow stats={stats} />}
       <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
         <input
           type="search"
@@ -306,7 +346,7 @@ const Dashboard = () => {
           onChange={(e) => setSearch(e.target.value)}
           placeholder="search by name, type or id…"
           aria-label="Search artifacts"
-          className="panel w-full px-4 py-2.5 font-semibold placeholder:text-ink/40 focus:outline-none focus:ring-4 focus:ring-gold"
+          className="panel game-field w-full px-4 py-2.5 font-semibold placeholder:text-ink/40"
         />
         <RepoSelect
           repo={repo}
@@ -322,4 +362,18 @@ const Dashboard = () => {
   )
 }
 
-export const ArtifactList = () => (useAtomValue(tokenAtom) === null ? <Login invalid={false} /> : <Dashboard />)
+/** Stats are the cheapest authorized call: they decide between the dashboard (skeleton until then) and a rejected token. */
+const SignedIn = () => {
+  const stats = useAtomValue(statsAtom)
+  useRevalidate(statsAtom)
+  useRevalidate(reposAtom)
+  return AsyncResult.matchWithError(stats, {
+    onInitial: () => <Dashboard stats={null} />,
+    onError: (error) =>
+      Predicate.isTagged(error, "Unauthorized") ? <Login invalid /> : <Dashboard stats={undefined} />,
+    onDefect: () => <Dashboard stats={undefined} />,
+    onSuccess: ({ value }) => <Dashboard stats={value} />
+  })
+}
+
+export const ArtifactList = () => (useAtomValue(tokenAtom) === null ? <Login invalid={false} /> : <SignedIn />)

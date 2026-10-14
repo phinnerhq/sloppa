@@ -1,6 +1,13 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Atom } from "effect/reactivity"
-import { type ReactNode, useEffect, useState } from "react"
+import {
+  type AnchorHTMLAttributes,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState
+} from "react"
 
 export type Mood = "stare" | "hiss" | "loaf"
 
@@ -34,48 +41,130 @@ export const useToast = () => {
   return (text: string) => set({ id: Date.now(), text })
 }
 
+const Toast = ({ text, onDone }: { text: string; onDone: () => void }) => {
+  const [leaving, setLeaving] = useState(false)
+  useEffect(() => {
+    const leave = setTimeout(() => setLeaving(true), 1800)
+    // Timed rather than on animationend, which never fires under reduced motion.
+    const done = setTimeout(onDone, 1800 + 220)
+    return () => {
+      clearTimeout(leave)
+      clearTimeout(done)
+    }
+  }, [onDone])
+  return (
+    <div
+      className={`panel flex items-center gap-3 bg-gold px-4 py-2 font-game text-base ${
+        leaving ? "animate-pop-out" : "animate-pop-in"
+      }`}
+    >
+      <Floppa className="h-8 w-auto" flop="none" />
+      {text}
+    </div>
+  )
+}
+
 export const Toaster = () => {
   const toast = useAtomValue(toastAtom)
   const set = useAtomSet(toastAtom)
-  useEffect(() => {
-    if (toast === null) return
-    const timer = setTimeout(() => set(null), 1800)
-    return () => clearTimeout(timer)
-  }, [toast, set])
+  const clear = useCallback(() => set(null), [set])
   if (toast === null) return null
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
-      <div
-        key={toast.id}
-        className="panel animate-pop-in flex items-center gap-3 bg-gold px-4 py-2 font-game text-base"
-      >
-        <Floppa className="h-8 w-auto" flop="none" />
-        {toast.text}
+      <Toast key={toast.id} text={toast.text} onDone={clear} />
+    </div>
+  )
+}
+
+const TILE = 520
+const viewport = () => ({ width: window.innerWidth, height: window.innerHeight })
+
+/**
+ * The background doodles, drifting one tile diagonally per loop.
+ * Firefox only runs transform animations off the main thread for frames about the viewport's size,
+ * so instead of one oversized layer, every tile is its own small layer sliding in lockstep.
+ */
+export const Doodles = () => {
+  const [{ width, height }, setSize] = useState(viewport)
+  useEffect(() => {
+    const resize = () => setSize(viewport())
+    window.addEventListener("resize", resize)
+    return () => window.removeEventListener("resize", resize)
+  }, [])
+  // Quarter tiles on small screens, where a whole one would already be too large.
+  const size = Math.min(width, height) >= TILE * 1.125 ? TILE : TILE / 2
+  const columns = Math.ceil(width / size) + TILE / size
+  const rows = Math.ceil(height / size) + TILE / size
+  return (
+    <div aria-hidden className="doodles">
+      <div style={{ gridTemplateColumns: `repeat(${columns}, ${size}px)`, gridAutoRows: `${size}px` }}>
+        {Array.from({ length: columns * rows }, (_, i) => (
+          <div
+            key={i}
+            style={{
+              backgroundPosition: `${-((i % columns) % 2) * size}px ${-(Math.floor(i / columns) % 2) * size}px`
+            }}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
+export type Tone = "green" | "blue" | "gold" | "red" | "cream"
+
+type PressableProps = {
+  tone?: Tone | undefined
+  size?: "sm" | "md" | "lg" | "icon" | undefined
+  className?: string | undefined
+  children: ReactNode
+}
+
+const pressable = ({ tone = "cream", size = "md", className = "" }: Omit<PressableProps, "children">) =>
+  `pressable game-btn tone-${tone} game-btn-${size} ${className}`
+
+/** A game button: an ink wall with a face that lifts on hover and slams down on press. */
+export const Button = ({
+  tone,
+  size,
+  className,
+  children,
+  type = "button",
+  ...props
+}: PressableProps & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children">) => (
+  <button type={type} className={pressable({ tone, size, className })} {...props}>
+    <span className="pressable-face">{children}</span>
+  </button>
+)
+
+export const ButtonLink = ({
+  tone,
+  size,
+  className,
+  children,
+  ...props
+}: PressableProps & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "children">) => (
+  <a className={pressable({ tone, size, className })} {...props}>
+    <span className="pressable-face">{children}</span>
+  </a>
+)
+
 export const CopyButton = ({
   value,
   label,
   toast,
-  color = "cream"
+  tone
 }: {
   value: string
   label: string
   toast: string
-  color?: "green" | "blue" | "cream"
+  tone?: Tone
 }) => {
   const showToast = useToast()
   return (
-    <button
-      type="button"
-      onClick={() => void navigator.clipboard.writeText(value).then(() => showToast(toast))}
-      className={`game-btn game-btn-${color}`}
-    >
+    <Button tone={tone} onClick={() => void navigator.clipboard.writeText(value).then(() => showToast(toast))}>
       {label}
-    </button>
+    </Button>
   )
 }
 
@@ -83,16 +172,16 @@ export const LinkButton = ({
   href,
   children,
   download,
-  color = "cream"
+  tone
 }: {
   href: string
   children: ReactNode
   download?: boolean
-  color?: "gold" | "cream"
+  tone?: Tone
 }) => (
-  <a href={href} target={download ? undefined : "_blank"} rel="noreferrer" className={`game-btn game-btn-${color}`}>
+  <ButtonLink href={href} target={download ? undefined : "_blank"} rel="noreferrer" tone={tone}>
     {children}
-  </a>
+  </ButtonLink>
 )
 
 export const Loading = ({ label = "loading…" }: { label?: string }) => (

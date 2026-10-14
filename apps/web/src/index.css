@@ -2,6 +2,7 @@
 @import "@fontsource/nunito/600.css";
 @import "@fontsource/nunito/800.css";
 @import "@fontsource-variable/jetbrains-mono";
+@import "overlayscrollbars/overlayscrollbars.css";
 @import "tailwindcss";
 
 @theme {
@@ -33,19 +34,27 @@
       linear-gradient(180deg, var(--color-sky) 0%, #8fd0ff 55%, #bfe6ff 100%);
     background-attachment: fixed;
   }
-  /* The doodles drift diagonally on their own layer: a composited transform, no repaints. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: -520px 0 0 -520px;
-    z-index: -1;
-    pointer-events: none;
-    background: url("./assets/doodles.svg") 0 0 / 520px 520px;
-    animation: drift 150s linear infinite;
-  }
   ::selection {
     background: var(--color-gold);
+    color: var(--color-ink);
   }
+}
+
+/* The page's overlay scrollbar (OverlayScrollbars on <body>, see main.tsx): an ink pill that never takes layout space. */
+.os-theme-sloppa {
+  --os-size: 14px;
+  --os-padding-perpendicular: 3px;
+  --os-padding-axis: 4px;
+  --os-track-border-radius: 999px;
+  --os-handle-border-radius: 999px;
+  --os-handle-bg: rgb(29 36 51 / 0.45);
+  --os-handle-bg-hover: rgb(29 36 51 / 0.65);
+  --os-handle-bg-active: var(--color-ink);
+  --os-handle-min-size: 40px;
+  --os-handle-perpendicular-size: 60%;
+  --os-handle-perpendicular-size-hover: 100%;
+  --os-handle-perpendicular-size-active: 100%;
+  --os-handle-interactive-area-offset: 4px;
 }
 
 @layer components {
@@ -54,25 +63,108 @@
     @apply rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)];
   }
 
-  .game-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border-[3px] border-ink px-4 py-2 font-game text-[15px] tracking-wide text-ink
-      shadow-[0_4px_0_var(--color-ink)] transition-[transform,box-shadow,filter] duration-75 select-none
-      hover:brightness-105 active:translate-y-1 active:shadow-[0_0_0_var(--color-ink)] disabled:opacity-60 disabled:active:translate-y-0;
+  /*
+   * Pressable: the element is the ink "wall", its .pressable-face child floats above it.
+   * Only the face moves, so the hit area stays put and hover never flickers at the edges.
+   */
+  .pressable {
+    --rest: 4px;
+    --lift: 2px;
+    --depth: var(--rest);
+    --face: var(--color-cream);
+    --face-hover: var(--color-belly);
+    --gloss: transparent;
+    --duration: 190ms;
+    position: relative;
+    display: inline-block;
+    margin-top: var(--rest);
+    border-radius: var(--radius-xl);
+    background: var(--color-ink);
+    color: var(--color-ink);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    &:focus-visible {
+      outline: 4px solid var(--color-gold);
+      outline-offset: 3px;
+    }
+    &:where(:hover, :focus-visible):not(:disabled) {
+      --depth: calc(var(--rest) + var(--lift));
+      --face: var(--face-hover);
+    }
+    &:active:not(:disabled) {
+      --depth: 0px;
+      --duration: 70ms;
+    }
+    &:disabled {
+      --depth: 0px;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
   }
-  .game-btn-green {
-    @apply bg-[#4cd964] text-white [text-shadow:0_2px_0_var(--color-ink)];
+  .pressable-face {
+    @apply block h-full rounded-[inherit] border-[3px] border-ink;
+    background-color: var(--face);
+    background-image: linear-gradient(var(--gloss) 0 45%, transparent 45%);
+    transform: translateY(calc(var(--depth) * -1));
+    transition:
+      transform var(--duration) cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 120ms linear;
   }
-  .game-btn-blue {
-    @apply bg-sky text-white [text-shadow:0_2px_0_var(--color-ink)];
+
+  .game-btn > .pressable-face {
+    @apply flex items-center justify-center gap-2 px-4 py-2 font-game text-[15px] tracking-wide whitespace-nowrap;
   }
-  .game-btn-gold {
-    @apply bg-gold;
+  .game-btn-sm > .pressable-face {
+    @apply px-3 py-1 text-sm;
   }
-  .game-btn-red {
-    @apply bg-danger text-white [text-shadow:0_2px_0_var(--color-ink)];
+  .game-btn-lg > .pressable-face {
+    @apply text-lg;
   }
-  .game-btn-cream {
-    @apply bg-cream;
+  .game-btn-icon > .pressable-face {
+    @apply p-2;
+  }
+  /* Bigger faces travel a bit further. */
+  .pressable-card {
+    --lift: 4px;
+    --face-hover: white;
+  }
+  .tone-green {
+    --face: #4cd964;
+    --face-hover: #74e787;
+    --gloss: rgb(255 255 255 / 0.2);
+  }
+  .tone-blue {
+    --face: var(--color-sky);
+    --face-hover: #85cbff;
+    --gloss: rgb(255 255 255 / 0.2);
+  }
+  .tone-gold {
+    --face: var(--color-gold);
+    --face-hover: #fff0b8;
+    --gloss: rgb(255 255 255 / 0.25);
+  }
+  .tone-red {
+    --face: var(--color-danger);
+    --face-hover: #ff8078;
+    --gloss: rgb(255 255 255 / 0.2);
+  }
+
+  /* Text fields keep their raised look when focused: the gold ring sits inside the outline, above the shadow. */
+  .game-field {
+    @apply transition-[background-color,box-shadow] duration-100 focus:outline-none;
+    &:focus,
+    &:focus-visible {
+      box-shadow:
+        inset 0 0 0 3px var(--color-gold),
+        0 4px 0 var(--color-ink);
+    }
+  }
+
+  /* Placeholder blocks for content that's still loading, shaped like what's coming. */
+  .skeleton {
+    @apply rounded-md bg-ink/10;
+    animation: shimmer 1.2s ease-in-out infinite;
   }
 
   /* White game text with a real outline: the stroke is painted behind the fill, so only its outer half shows. */
@@ -82,10 +174,39 @@
     paint-order: stroke fill;
     text-shadow: 0 3px 0 var(--color-ink);
   }
+  /*
+   * Selected titles keep their outline (Gecko can't restyle it in ::selection anyway) and turn gold over
+   * a faint ink band: a gold highlight box would stop short of the outline at both ends.
+   */
+  .game-title::selection {
+    color: var(--color-gold);
+    background: rgb(29 36 51 / 0.2);
+    text-shadow: 0 3px 0 var(--color-ink);
+  }
 
   /* Native select (keyboard + mobile pickers for free), dressed as a panel; the chevron is a Phosphor icon on top. */
   .game-select {
-    @apply min-w-0 cursor-pointer appearance-none rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)] py-2.5 pr-10 pl-4 font-bold text-ink focus:outline-none focus:ring-4 focus:ring-gold md:max-w-64;
+    @apply min-w-0 cursor-pointer appearance-none rounded-xl border-[3px] border-ink bg-cream shadow-[0_4px_0_var(--color-ink)] py-2.5 pr-10 pl-4 font-bold text-ink transition-colors hover:bg-white md:max-w-64;
+  }
+
+  /* A static, clipped grid of tiles; only the tiles move (see Doodles in ui.tsx). */
+  .doodles {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    & > div {
+      position: absolute;
+      top: -520px;
+      left: -520px;
+      display: grid;
+    }
+    & > div > div {
+      background: url("./assets/doodles.svg") 0 0 / 520px 520px;
+      animation: drift 150s linear infinite;
+      will-change: transform;
+    }
   }
 
   .checkerboard {
@@ -145,6 +266,17 @@
     transform: translateY(-6px);
   }
 }
+@keyframes shimmer {
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes pop-out {
+  to {
+    transform: translateY(16px) scale(0.92);
+    opacity: 0;
+  }
+}
 @keyframes pop-in {
   0% {
     transform: translateY(12px) scale(0.9);
@@ -183,14 +315,22 @@
 @utility animate-pop-in {
   animation: pop-in 0.35s cubic-bezier(0.3, 1.4, 0.5, 1) both;
 }
+@utility animate-pop-out {
+  animation: pop-out 0.2s cubic-bezier(0.5, 0, 0.75, 0) both;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-flop,
   .animate-flop-loop,
   .animate-bob,
   .animate-pop-in,
+  .animate-pop-out,
+  .skeleton,
   .wave,
-  body::before {
+  .doodles > div > div {
     animation: none;
+  }
+  .pressable-face {
+    transition: none;
   }
 }

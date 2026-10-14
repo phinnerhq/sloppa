@@ -14,7 +14,7 @@ import {
 } from "../api.ts"
 import { formatAgo, formatDate, formatSize, kindOf, markdownFor, prLabel } from "../format.ts"
 import { listPath, navigate, onLinkClick } from "../router.ts"
-import { CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
+import { Button, ButtonLink, CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
 
 const TextPreview = ({ url }: { url: string }) => {
   const result = useAtomValue(textPreviewAtom(url))
@@ -33,7 +33,7 @@ const TooBig = ({ artifact, title }: { artifact: Artifact; title: string }) => (
   <div className="p-6">
     <Notice title={title} mood="loaf">
       <div className="mt-2">
-        <LinkButton href={`${artifact.rawUrl}?download`} download color="gold">
+        <LinkButton href={`${artifact.rawUrl}?download`} download tone="gold">
           download {formatSize(artifact.size)}
         </LinkButton>
       </div>
@@ -85,8 +85,8 @@ const SellButton = ({ artifact }: { artifact: Artifact }) => {
   const toast = useToast()
   const [busy, setBusy] = useState(false)
   return (
-    <button
-      type="button"
+    <Button
+      tone="red"
       disabled={busy}
       onClick={() => {
         if (!window.confirm(`Delete ${artifact.name}? Links to it will stop working.`)) return
@@ -101,10 +101,9 @@ const SellButton = ({ artifact }: { artifact: Artifact }) => {
           }
         })
       }}
-      className="game-btn game-btn-red"
     >
       {busy ? "deleting…" : "delete"}
-    </button>
+    </Button>
   )
 }
 
@@ -143,11 +142,11 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
           </Stat>
         </dl>
         <div className="grid gap-2.5">
-          <CopyButton label="copy link" value={artifact.rawUrl} toast="link copied" color="green" />
-          <CopyButton label="copy markdown" value={markdownFor(artifact)} toast="markdown copied" color="blue" />
+          <CopyButton label="copy link" value={artifact.rawUrl} toast="link copied" tone="green" />
+          <CopyButton label="copy markdown" value={markdownFor(artifact)} toast="markdown copied" tone="blue" />
           <div className="grid grid-cols-2 gap-2.5">
             <LinkButton href={artifact.rawUrl}>open raw</LinkButton>
-            <LinkButton href={`${artifact.rawUrl}?download`} download color="gold">
+            <LinkButton href={`${artifact.rawUrl}?download`} download tone="gold">
               download
             </LinkButton>
           </div>
@@ -184,9 +183,9 @@ const decodeId = Schema.decodeUnknownOption(ArtifactId)
 
 export const ArtifactView = ({ id }: { id: string }) => (
   <div className="space-y-5">
-    <a href={listPath()} onClick={onLinkClick(listPath())} className="game-btn game-btn-cream !px-3 !py-1 !text-sm">
+    <ButtonLink href={listPath()} onClick={onLinkClick(listPath())} size="sm">
       <ArrowLeftIcon size={16} /> all artifacts
-    </a>
+    </ButtonLink>
     {Option.match(decodeId(id), {
       onNone: () => (
         <Notice title="artifact not found" mood="hiss">

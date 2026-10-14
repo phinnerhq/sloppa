@@ -27,13 +27,26 @@ export class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiC
 /** Invalidated by uploads/deletes made from this tab. */
 const ARTIFACTS_KEY = ["artifacts"]
 
-export const reposAtom = ApiClient.query("artifacts", "repos", { reactivityKeys: ARTIFACTS_KEY })
+/** How long the list's data survives leaving the page, so coming back shows it at once (then revalidates). */
+const LIST_CACHE = "5 minutes"
 
-export const statsAtom = ApiClient.query("artifacts", "stats", { reactivityKeys: ARTIFACTS_KEY })
+export const reposAtom = ApiClient.query("artifacts", "repos", {
+  reactivityKeys: ARTIFACTS_KEY,
+  timeToLive: LIST_CACHE
+})
+
+export const statsAtom = ApiClient.query("artifacts", "stats", {
+  reactivityKeys: ARTIFACTS_KEY,
+  timeToLive: LIST_CACHE
+})
 
 /** PRs that have artifacts, newest activity first; "" for every repo. */
 export const prsAtom = Atom.family((repo: string) =>
-  ApiClient.query("artifacts", "prs", { query: repo === "" ? {} : { repo }, reactivityKeys: ARTIFACTS_KEY })
+  ApiClient.query("artifacts", "prs", {
+    query: repo === "" ? {} : { repo },
+    reactivityKeys: ARTIFACTS_KEY,
+    timeToLive: LIST_CACHE
+  })
 )
 
 export interface ListFilter {
@@ -65,7 +78,7 @@ const pagesFamily = Atom.family((key: string) => {
         })
       )
     )
-    .pipe(Atom.withReactivity(ARTIFACTS_KEY))
+    .pipe(Atom.withReactivity(ARTIFACTS_KEY), Atom.setIdleTTL(LIST_CACHE))
 })
 
 export const artifactPagesAtom = (filter: ListFilter) =>

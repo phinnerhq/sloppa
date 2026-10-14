@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, ArrowSquareOutIcon, CodeIcon, GlobeIcon } from "@phosphor-icons/react"
 import type { ReactNode } from "react"
 import { listPath, onLinkClick } from "../router.ts"
-import { Floppa, type Mood } from "./ui.tsx"
+import { ButtonLink, Floppa, type Mood } from "./ui.tsx"
 
 const SITE = "https://phinner.dev"
 const REPO = "https://github.com/phinnerhq/sloppa-artifacts"
@@ -89,9 +89,9 @@ const Entries = ({ entries }: { entries: ReadonlyArray<Entry> }) => (
 
 export const Credits = () => (
   <div className="mx-auto max-w-3xl space-y-8">
-    <a href={listPath()} onClick={onLinkClick(listPath())} className="game-btn game-btn-cream !px-3 !py-1 !text-sm">
+    <ButtonLink href={listPath()} onClick={onLinkClick(listPath())} size="sm">
       <ArrowLeftIcon size={16} /> all artifacts
-    </a>
+    </ButtonLink>
 
     <div className="panel animate-pop-in flex flex-col items-center gap-4 px-6 py-8 text-center sm:flex-row sm:text-left">
       <Floppa mood="stare" className="h-32 w-auto shrink-0" />
@@ -101,12 +101,12 @@ export const Credits = () => (
           Part of <span className="font-extrabold text-ink">sloppa</span>, your line of personal slop software.
         </p>
         <div className="flex flex-wrap justify-center gap-2.5 sm:justify-start">
-          <External href={SITE} className="game-btn game-btn-blue">
+          <ButtonLink href={SITE} target="_blank" rel="noreferrer" tone="blue">
             <GlobeIcon size={18} /> phinner.dev
-          </External>
-          <External href={REPO} className="game-btn game-btn-gold">
+          </ButtonLink>
+          <ButtonLink href={REPO} target="_blank" rel="noreferrer" tone="gold">
             <CodeIcon size={18} /> source
-          </External>
+          </ButtonLink>
         </div>
       </div>
     </div>
