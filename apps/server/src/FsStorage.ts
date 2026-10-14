@@ -87,10 +87,7 @@ export const makeFsStorage = (dir: string) =>
       }).pipe(Effect.orDie)
       // Bytes first, metadata last: an artifact exists once its sidecar does. The body is streamed to disk,
       // never buffered whole.
-      yield* Stream.fromReadableStream({
-        evaluate: () => input.body.stream(),
-        onError: (cause) => new StorageError({ message: `read upload: ${String(cause)}` })
-      }).pipe(Stream.run(fs.sink(fileOf(id))), storageError("write artifact"))
+      yield* input.body.stream.pipe(Stream.run(fs.sink(fileOf(id))), storageError("write artifact"))
       yield* fs.writeFileString(`${metaOf(id)}.tmp`, meta).pipe(storageError("write metadata"))
       yield* fs.rename(`${metaOf(id)}.tmp`, metaOf(id)).pipe(storageError("write metadata"))
       return yield* head(id).pipe(Effect.catchTag("ArtifactNotFound", Effect.die))

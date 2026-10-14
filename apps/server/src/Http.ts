@@ -1,12 +1,12 @@
-import { Api, ArtifactId, Authorization, PAGE_SIZE, Unauthorized, Uploader } from "@sloppa/api"
-import { Effect, Layer, Option, Redacted, Schema } from "effect"
+import { Api, ArtifactId, Authorization, PAGE_SIZE, StorageError, Unauthorized, Uploader } from "@sloppa/api"
+import { Effect, FileSystem, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
 import { timingSafeEqual } from "node:crypto"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
-import { ArtifactStorage } from "./Storage.ts"
+import { ArtifactStorage, uploadOf } from "./Storage.ts"
 import { UploadTickets } from "./Tickets.ts"
 
 const sameSecret = (a: string, b: string) => {
@@ -33,6 +33,18 @@ const ArtifactsHandlers = HttpApiBuilder.group(
   "artifacts",
   Effect.fn(function* (handlers) {
     const artifacts = yield* Artifacts
+    const fs = yield* FileSystem.FileSystem
+    /** A multipart temp file, streamed from disk. */
+    const uploadOfFile = (path: string) =>
+      fs.stat(path).pipe(
+        Effect.map((info) => ({
+          size: Number(info.size),
+          stream: fs
+            .stream(path)
+            .pipe(Stream.mapError((cause) => new StorageError({ message: `read upload: ${cause.message}` })))
+        })),
+        Effect.mapError((cause) => new StorageError({ message: `read upload: ${cause.message}` }))
+      )
     return handlers.handleAll({
       list: ({ query }) => artifacts.list({ ...query, limit: query.limit ?? PAGE_SIZE }),
       stats: () => artifacts.stats,
@@ -41,15 +53,17 @@ const ArtifactsHandlers = HttpApiBuilder.group(
       get: ({ params }) => artifacts.get(params.id),
       upload: ({ payload }) =>
         Effect.forEach(payload.files, (file) =>
-          artifacts.upload({
-            name: file.name,
-            contentType: file.contentType,
-            // The one Bun API left on purpose: a lazy, sized Blob over the multipart temp file. S3 needs the size
-            // up front for a Content-Length, and Effect's FileSystem would have to read the whole file to get one.
-            body: Bun.file(file.path),
-            repo: payload.repo,
-            pr: payload.pr
-          })
+          uploadOfFile(file.path).pipe(
+            Effect.flatMap((body) =>
+              artifacts.upload({
+                name: file.name,
+                contentType: file.contentType,
+                body,
+                repo: payload.repo,
+                pr: payload.pr
+              })
+            )
+          )
         ),
       delete: ({ params }) => artifacts.remove(params.id)
     })
@@ -131,7 +145,7 @@ const TicketUploadRoute = Layer.effectDiscard(
         if (yield* artifacts.exists(ticket.value.id)) {
           return HttpServerResponse.text("This upload URL was already used, ask for a new one\n", { status: 409 })
         }
-        const body = new Blob([yield* request.arrayBuffer])
+        const body = uploadOf(new Uint8Array(yield* request.arrayBuffer))
         const artifact = yield* artifacts.upload({
           id: ticket.value.id,
           name: ticket.value.name,

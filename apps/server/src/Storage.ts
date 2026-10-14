@@ -1,5 +1,5 @@
 import type { ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
-import { Context, type DateTime, Effect, Layer, Path, type Stream } from "effect"
+import { Context, type DateTime, Effect, Layer, Path, Stream } from "effect"
 import { AppConfig } from "./Config.ts"
 import { makeFsStorage } from "./FsStorage.ts"
 import { makeS3Storage } from "./S3Storage.ts"
@@ -14,16 +14,24 @@ export interface StoredArtifact {
   readonly pr: string | undefined
 }
 
+/**
+ * An upload's bytes, streamed, with the size known up front. The filesystem backend writes the stream
+ * straight to disk; S3 needs it whole (see `S3Storage.put`).
+ */
+export interface Upload {
+  readonly size: number
+  readonly stream: Stream.Stream<Uint8Array, StorageError>
+}
+
+/** For bytes already in memory. */
+export const uploadOf = (bytes: Uint8Array): Upload => ({ size: bytes.byteLength, stream: Stream.make(bytes) })
+
 export interface PutInput {
   /** Picked up front for upload tickets; a fresh UUID otherwise. */
   readonly id?: ArtifactId | undefined
   readonly name: string
   readonly contentType: string
-  /**
-   * A sized body, so fetch sends a Content-Length (some S3 servers, RustFS included, reject chunked PutObject).
-   * Don't also pass `ContentLength` to S3: distilled then drops the header.
-   */
-  readonly body: Blob
+  readonly body: Upload
   readonly repo: string | undefined
   readonly pr: string | undefined
 }

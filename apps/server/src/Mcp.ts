@@ -16,6 +16,7 @@ import { McpProtocol, McpServer, Tool, Toolkit } from "effect/ai"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { resolveContentType } from "./ContentType.ts"
+import { uploadOf } from "./Storage.ts"
 import { UploadTickets } from "./Tickets.ts"
 
 const Pr = Schema.String.annotate({
@@ -169,7 +170,7 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
           .upload({
             name,
             contentType: contentType ?? undefined,
-            body: new Blob([content]),
+            body: uploadOf(new TextEncoder().encode(content)),
             repo,
             pr
           })

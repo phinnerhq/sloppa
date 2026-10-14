@@ -20,6 +20,16 @@ const decodeMeta = (value: string | undefined) => {
   }
 }
 
+const concat = (chunks: ReadonlyArray<Uint8Array>, size: number) => {
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
 const toStorageError = (cause: { readonly _tag: string; readonly message?: string | undefined }) =>
   new StorageError({ message: cause.message ? `${cause._tag}: ${cause.message}` : cause._tag })
 
@@ -62,11 +72,15 @@ export const makeS3Storage = (s3: S3Config) =>
     const put = Effect.fn("ArtifactStorage.put")(function* (input: PutInput) {
       const id = input.id ?? (crypto.randomUUID() as ArtifactId)
       const uploadedAt = yield* DateTime.now
+      // Buffered whole on purpose. distilled only streams a body when given its ContentLength, and then drops
+      // the header, which RustFS rejects ("missing header: content-length"); handing it a stream without one
+      // makes it buffer anyway.
+      const Body = concat(yield* Stream.runCollect(input.body.stream), input.body.size)
       yield* run(
         S3.putObject({
           Bucket,
           Key: keyOf(id),
-          Body: input.body,
+          Body,
           ContentType: input.contentType,
           Metadata: {
             name: encodeMeta(input.name),

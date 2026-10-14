@@ -14,14 +14,14 @@ import { Context, Effect, Layer, Option } from "effect"
 import { AppConfig } from "./Config.ts"
 import { resolveContentType } from "./ContentType.ts"
 import { ArtifactIndex } from "./Index.ts"
-import { ArtifactStorage, type StoredArtifact } from "./Storage.ts"
+import { ArtifactStorage, type StoredArtifact, type Upload } from "./Storage.ts"
 
 export interface UploadInput {
   readonly id?: ArtifactId | undefined
   readonly name: string
   /** What the uploader claimed; the file extension wins when this is missing or generic. */
   readonly contentType: string | undefined
-  readonly body: Blob
+  readonly body: Upload
   readonly repo: string | undefined
   readonly pr: string | undefined
 }
