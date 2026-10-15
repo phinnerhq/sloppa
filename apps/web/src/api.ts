@@ -1,28 +1,35 @@
-import { BrowserKeyValueStore } from "@effect/platform-browser"
-import { Api, type ArtifactId, Authorization, GROUP_PAGE_SIZE, PAGE_SIZE } from "@sloppa/api"
-import { Effect, Layer, Option, Schema, Stream } from "effect"
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-import { HttpApiMiddleware } from "effect/http-api"
+import { Api, type ArtifactId, GROUP_PAGE_SIZE, PAGE_SIZE } from "@sloppa/api"
+import { Effect, Option, Stream } from "effect"
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http"
 import { Atom, AtomHttpApi } from "effect/reactivity"
-
-/** The server's UPLOAD_TOKEN, as used by MCP clients; it gates listing, single artifacts are public. */
-export const tokenAtom = Atom.kvs({
-  runtime: Atom.runtime(BrowserKeyValueStore.layerLocalStorage),
-  key: "sloppa-artifacts-token",
-  schema: Schema.NullOr(Schema.String),
-  defaultValue: () => null
-})
-
-const authorization = (token: string | null) =>
-  HttpApiMiddleware.layerClient(Authorization, ({ next, request }) =>
-    next(token === null ? request : HttpClientRequest.bearerToken(request, token))
-  )
 
 export class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient", {
   api: Api,
-  httpClient: (get) => Layer.mergeAll(FetchHttpClient.layer, authorization(get(tokenAtom))),
+  // Signed in through an HttpOnly cookie, which same-origin fetches send by themselves.
+  httpClient: FetchHttpClient.layer,
   baseUrl: window.location.origin
 }) {}
+
+/** Signing in or out changes what every authorized query returns. */
+const SESSION_KEY = ["session"]
+
+/** Who is signed in; fails with `Unauthorized` when nobody is. */
+export const sessionAtom = ApiClient.query("session", "current", { reactivityKeys: SESSION_KEY })
+
+export const loginAtom = ApiClient.mutation("session", "login")
+export const logoutAtom = ApiClient.mutation("session", "logout")
+/** Pass as `reactivityKeys` when signing in or out. */
+export const invalidateSession = ["session", "artifacts", "agents"]
+
+const AGENTS_KEY = ["agents"]
+
+export const agentsAtom = ApiClient.query("agents", "list", { reactivityKeys: [...SESSION_KEY, ...AGENTS_KEY] })
+export const createAgentAtom = ApiClient.mutation("agents", "create")
+export const revokeAgentAtom = ApiClient.mutation("agents", "revoke")
+export const renameAgentAtom = ApiClient.mutation("agents", "rename")
+export const createSetupAtom = ApiClient.mutation("agents", "createSetup")
+export const revokeSetupAtom = ApiClient.mutation("agents", "revokeSetup")
+export const invalidateAgents = AGENTS_KEY
 
 /** Invalidated by uploads/deletes made from this tab. */
 const ARTIFACTS_KEY = ["artifacts"]

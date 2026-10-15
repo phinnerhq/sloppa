@@ -186,16 +186,22 @@ export const CopyButton = ({
   value,
   label,
   toast,
-  tone
+  tone,
+  size
 }: {
   value: string
   label: string
   toast: string
   tone?: Tone
+  size?: PressableProps["size"]
 }) => {
   const showToast = useToast()
   return (
-    <Button tone={tone} onClick={() => void navigator.clipboard.writeText(value).then(() => showToast(toast))}>
+    <Button
+      tone={tone}
+      size={size}
+      onClick={() => void navigator.clipboard.writeText(value).then(() => showToast(toast))}
+    >
       {label}
     </Button>
   )

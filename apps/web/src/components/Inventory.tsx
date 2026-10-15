@@ -302,7 +302,7 @@ export const Paged = <P extends Page>({
     onInitial: () => skeleton,
     onError: (error) =>
       Predicate.isTagged(error, "Unauthorized") ? (
-        <Login invalid />
+        <Login expired />
       ) : (
         <Notice title="couldn't load artifacts" mood="hiss">
           is the server and its bucket up?

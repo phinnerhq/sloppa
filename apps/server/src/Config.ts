@@ -20,6 +20,19 @@ const s3Config = Effect.gen(function* () {
   } satisfies S3Config
 })
 
+/** The first user, created (or given this password again) on boot. */
+export interface BootstrapUser {
+  readonly username: string
+  readonly password: Redacted.Redacted<string>
+}
+
+const bootstrapUser = Effect.gen(function* () {
+  const username = yield* Config.String("BOOTSTRAP_USERNAME").pipe(Config.withDefault(""))
+  const password = yield* Config.Redacted("BOOTSTRAP_PASSWORD").pipe(Config.withDefault(undefined))
+  if (username.trim() === "" || password === undefined || Redacted.value(password) === "") return undefined
+  return { username: username.trim(), password } satisfies BootstrapUser
+})
+
 /** A wildcard bind address (as in a container) isn't something a browser can open. */
 const localHost = (host: string) => (host === "0.0.0.0" || host === "::" ? "localhost" : host)
 
@@ -29,9 +42,15 @@ export class AppConfig extends Context.Service<
     readonly host: string
     readonly port: number
     readonly publicUrl: string
-    readonly uploadToken: Redacted.Redacted<string>
+    /** Unset once users exist: accounts live in `dataDir`. */
+    readonly bootstrapUser: BootstrapUser | undefined
+    /**
+     * Behind a reverse proxy, the client is the last `X-Forwarded-For` entry (the one the proxy added)
+     * rather than the socket's address, which is the proxy's for everyone.
+     */
+    readonly trustProxy: boolean
     readonly staticDir: string | undefined
-    /** Holds the SQLite index and, without S3, the files themselves. */
+    /** Holds the accounts, the SQLite index and, without S3, the files themselves. */
     readonly dataDir: string
     /** Set when `S3_ENDPOINT` is: artifacts then live in the bucket instead of `dataDir`. */
     readonly s3: S3Config | undefined
@@ -48,7 +67,8 @@ export class AppConfig extends Context.Service<
         publicUrl: (yield* Config.String("PUBLIC_URL").pipe(
           Config.withDefault(`http://${localHost(host)}:${port}`)
         )).replace(/\/+$/, ""),
-        uploadToken: yield* Config.Redacted("UPLOAD_TOKEN"),
+        bootstrapUser: yield* bootstrapUser,
+        trustProxy: yield* Config.Boolean("TRUST_PROXY").pipe(Config.withDefault(false)),
         staticDir: yield* Config.String("STATIC_DIR").pipe(Config.withDefault(undefined)),
         dataDir: yield* Config.String("DATA_DIR").pipe(Config.withDefault(".data")),
         s3: yield* s3Config

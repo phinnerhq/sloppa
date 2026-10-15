@@ -1,31 +1,36 @@
-import { RegistryProvider, useAtom } from "@effect/atom-react"
+import { RegistryProvider, useAtomSet } from "@effect/atom-react"
 import { IconContext, PackageIcon, SignOutIcon } from "@phosphor-icons/react"
 import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import { tokenAtom } from "./api.ts"
+import { invalidateSession, logoutAtom } from "./api.ts"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
+import { ConnectAgent } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
+import { useSignedIn } from "./components/Login.tsx"
 import { Button, Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
 import "./index.css"
 import { type Direction, type Navigation, onLinkClick, type Route, useBeforeNavigate, useRoute } from "./router.ts"
 
 const Session = () => {
-  const [token, setToken] = useAtom(tokenAtom)
-  if (token === null) return null
+  const logout = useAtomSet(logoutAtom)
+  if (!useSignedIn()) return null
   return (
-    // Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line.
-    <Button
-      onClick={() => setToken(null)}
-      aria-label="Sign out"
-      title="Sign out"
-      size="icon"
-      className="[&>.pressable-face]:size-12.5"
-    >
-      <SignOutIcon size={20} />
-    </Button>
+    <>
+      <ConnectAgent />
+      {/* Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line. */}
+      <Button
+        onClick={() => logout({ reactivityKeys: invalidateSession })}
+        aria-label="Sign out"
+        title="Sign out"
+        size="icon"
+        className="[&>.pressable-face]:size-12.5"
+      >
+        <SignOutIcon size={20} />
+      </Button>
+    </>
   )
 }
 
@@ -233,15 +238,16 @@ const App = () => {
   return (
     <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <Doodles />
-      <header ref={header} className="relative z-10 mb-8 flex flex-wrap items-end justify-between gap-3">
+      <header ref={header} className="relative z-10 mb-8 flex flex-wrap items-end justify-between gap-2 sm:gap-3">
         <a href="/" onClick={onLinkClick("/")} className="pressable pressable-card mt-5">
-          <span className="pressable-face flex items-center gap-3 py-1.5 pr-4 pl-2">
+          <span className="pressable-face flex items-center gap-3 py-1.5 pr-3 pl-2 sm:pr-4">
             <Floppa mood="hiss" className="-mt-9 -mb-3 h-20 w-auto" />
-            <span className="font-game text-2xl leading-none">sloppa artifacts</span>
-            <PackageIcon size={26} className="-ml-1 shrink-0" />
+            {/* A notch smaller on phones, and without the box, so the header buttons still fit beside it. */}
+            <span className="font-game text-xl leading-none sm:text-2xl">sloppa artifacts</span>
+            <PackageIcon size={26} className="-ml-1 hidden shrink-0 sm:block" />
           </span>
         </a>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5">
           <Session />
         </div>
       </header>

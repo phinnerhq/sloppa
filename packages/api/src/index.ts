@@ -95,22 +95,71 @@ export class StorageError extends Schema.TaggedError<StorageError, { readonly br
   { httpApiStatus: 502 }
 ) {}
 
-export class Uploader extends Context.Service<Uploader, { readonly token: "valid" }>()("sloppa/api/Uploader") {}
+export class InvalidCredentials extends Schema.TaggedError<InvalidCredentials, { readonly brand: unique symbol }>()(
+  "InvalidCredentials",
+  {},
+  { httpApiStatus: 401 }
+) {}
+
+export class TooManyAttempts extends Schema.TaggedError<TooManyAttempts, { readonly brand: unique symbol }>()(
+  "TooManyAttempts",
+  { /** Seconds until the next attempt counts. */ retryAfter: Schema.Int },
+  { httpApiStatus: 429 }
+) {}
+
+export class User extends Schema.Class<User, { readonly brand: unique symbol }>("User")({
+  username: Schema.String
+}) {}
+
+export const AGENT_NAME_MAX = 100
+export const AgentName = Schema.Trimmed.check(Schema.isNonEmpty(), Schema.isMaxLength(AGENT_NAME_MAX))
+
+/** A token handed to one agent through a setup link. */
+export class Agent extends Schema.Class<Agent, { readonly brand: unique symbol }>("Agent")({
+  id: Schema.String,
+  /** What the agent called itself, e.g. "Claude Code on my laptop". */
+  name: Schema.String,
+  createdAt: Schema.DateTimeUtcFromString,
+  lastUsedAt: Schema.optionalKey(Schema.DateTimeUtcFromString)
+}) {}
+
+/** Shown once: only a hash of the token is kept. */
+export class CreatedAgent extends Schema.Class<CreatedAgent, { readonly brand: unique symbol }>("CreatedAgent")({
+  agent: Agent,
+  token: Schema.String
+}) {}
+
+export class SetupLink extends Schema.Class<SetupLink, { readonly brand: unique symbol }>("SetupLink")({
+  id: Schema.String,
+  url: Schema.String,
+  /** Paste this into an agent: it sets itself up from the link. */
+  prompt: Schema.String,
+  expiresAt: Schema.DateTimeUtcFromString
+}) {}
+
+export class CurrentUser extends Context.Service<CurrentUser, { readonly id: number; readonly username: string }>()(
+  "sloppa/api/CurrentUser"
+) {}
+
+export const SESSION_COOKIE = "sloppa_session"
+export const sessionCookie = HttpApiSecurity.apiKey({ in: "cookie", key: SESSION_COOKIE })
 
 /**
- * Bearer token auth, required for everything except fetching a single artifact
- * by id: the random UUID is what makes a shared link unguessable, so listing
- * (which would hand out every id) stays behind the token.
+ * A signed-in browser's cookie, or an agent's bearer token. Everything needs one except fetching a
+ * single artifact by id: the random UUID is what makes a shared link unguessable, so listing (which
+ * would hand out every id) stays behind sign-in.
+ *
+ * Reading the cookie takes the request, hence the requirements it leaks.
+ * @effect-expect-leaking HttpServerRequest | ParsedSearchParams | RouteContext
  */
 export class Authorization extends HttpApiMiddleware.Service<
   Authorization,
   {
-    provides: Uploader
+    provides: CurrentUser
     requires: never
   }
 >()("sloppa/api/Authorization", {
-  requiredForClient: true,
-  security: { bearer: HttpApiSecurity.bearer },
+  security: { session: sessionCookie, bearer: HttpApiSecurity.bearer },
   error: Unauthorized
 }) {}
 
@@ -183,6 +232,42 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
   )
   .annotateMerge(OpenApi.annotations({ title: "Artifacts" })) {}
 
+export class SessionGroup extends HttpApiGroup.make("session")
+  .add(
+    HttpApiEndpoint.post("login", "/api/session", {
+      payload: Schema.Struct({ username: Schema.String, password: Schema.String }),
+      success: User,
+      error: [InvalidCredentials, TooManyAttempts]
+    }),
+    HttpApiEndpoint.get("current", "/api/session", { success: User }).middleware(Authorization),
+    HttpApiEndpoint.delete("logout", "/api/session", { success: HttpApiSchema.NoContent }).middleware(Authorization)
+  )
+  .annotateMerge(OpenApi.annotations({ title: "Session" })) {}
+
+export class AgentsGroup extends HttpApiGroup.make("agents")
+  .add(
+    HttpApiEndpoint.get("list", "/api/agents", { success: Schema.Array(Agent) }).middleware(Authorization),
+    HttpApiEndpoint.post("create", "/api/agents", {
+      payload: Schema.Struct({ name: AgentName }),
+      success: CreatedAgent
+    }).middleware(Authorization),
+    HttpApiEndpoint.delete("revoke", "/api/agents/:id", {
+      params: { id: Schema.String },
+      success: HttpApiSchema.NoContent
+    }).middleware(Authorization),
+    HttpApiEndpoint.patch("rename", "/api/agents/:id", {
+      params: { id: Schema.String },
+      payload: Schema.Struct({ name: AgentName }),
+      success: HttpApiSchema.NoContent
+    }).middleware(Authorization),
+    HttpApiEndpoint.post("createSetup", "/api/setup-links", { success: SetupLink }).middleware(Authorization),
+    HttpApiEndpoint.delete("revokeSetup", "/api/setup-links/:id", {
+      params: { id: Schema.String },
+      success: HttpApiSchema.NoContent
+    }).middleware(Authorization)
+  )
+  .annotateMerge(OpenApi.annotations({ title: "Agents" })) {}
+
 /** `owner/repo` of a GitHub pull request URL. */
 export const repoOfPr = (pr: string): string | undefined => {
   const match = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+/.exec(pr)
@@ -197,7 +282,12 @@ export const normalizePr = (pr: string): string => {
 
 export class Api extends HttpApi.make("sloppa-artifacts")
   .add(ArtifactsGroup)
+  .add(SessionGroup)
+  .add(AgentsGroup)
   .annotateMerge(OpenApi.annotations({ title: "Sloppa Artifacts" })) {}
+
+/** Where agents redeem a setup link, outside the typed API since they read it as plain text. */
+export const setupPath = (code: string) => `/setup/${code}`
 
 /** Path of the raw file route, served outside the typed API so headers can follow the file. */
 export const rawPath = (id: string, name: string) => `/f/${id}/${encodeURIComponent(name)}`

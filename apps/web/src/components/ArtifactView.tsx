@@ -4,16 +4,10 @@ import { type Artifact, ArtifactId } from "@sloppa/api"
 import { Exit, Option, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { type ReactNode, useState } from "react"
-import {
-  artifactAtom,
-  deleteArtifactAtom,
-  invalidateArtifacts,
-  MAX_TEXT_PREVIEW,
-  textPreviewAtom,
-  tokenAtom
-} from "../api.ts"
+import { artifactAtom, deleteArtifactAtom, invalidateArtifacts, MAX_TEXT_PREVIEW, textPreviewAtom } from "../api.ts"
 import { formatAgo, formatDate, formatSize, kindOf, markdownFor } from "../format.ts"
 import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
+import { useSignedIn } from "./Login.tsx"
 import { Button, ButtonLink, CopyButton, LinkButton, Loading, Notice, PrName, useToast } from "./ui.tsx"
 
 const TextPreview = ({ url }: { url: string }) => {
@@ -105,7 +99,7 @@ const SellButton = ({ artifact }: { artifact: Artifact }) => {
   )
 }
 
-const SignedIn = ({ children }: { children: ReactNode }) => (useAtomValue(tokenAtom) === null ? null : children)
+const SignedIn = ({ children }: { children: ReactNode }) => (useSignedIn() ? children : null)
 
 const Stat = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className="flex items-baseline justify-between gap-4 border-b-2 border-dashed border-ink/15 py-1.5 last:border-0">

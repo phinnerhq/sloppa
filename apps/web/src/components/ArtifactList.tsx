@@ -5,13 +5,14 @@ import type { Stats } from "@sloppa/api"
 import { Predicate } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react"
-import { artifactPagesAtom, type ListFilter, NO_PR, prsAtom, reposAtom, statsAtom, tokenAtom } from "../api.ts"
+import { artifactPagesAtom, type ListFilter, NO_PR, prsAtom, reposAtom, sessionAtom, statsAtom } from "../api.ts"
 import { formatAgo, formatSize, prLabel } from "../format.ts"
 import { onLinkClick, returnTo, useQueryParam } from "../router.ts"
 import { Inventory, InventorySkeleton, ItemCount, Paged, PrTitle, SlotsSkeleton, useRevalidate } from "./Inventory.tsx"
 import { Login } from "./Login.tsx"
+import { AgentSetup } from "./Connect.tsx"
 import { Mosaic } from "./Mosaic.tsx"
-import { ButtonLink, CopyButton, Floppa, Notice, overlayScrollbar, PrName } from "./ui.tsx"
+import { ButtonLink, Floppa, Notice, overlayScrollbar, PrName } from "./ui.tsx"
 
 /** Two wave layers drifting against each other, offset per card so they never slosh in sync. */
 const Liquid = ({ color, delay }: { color: string; delay: number }) => (
@@ -115,10 +116,11 @@ const Select = ({
     </BaseSelect.Trigger>
     <BaseSelect.Portal>
       <BaseSelect.Positioner alignItemWithTrigger={false} align="start" sideOffset={10} className="z-40 outline-none">
-        <BaseSelect.Popup className="game-picker">
+        {/* The padding goes on the popup: OverlayScrollbars hands its target's padding to the list it scrolls. */}
+        <BaseSelect.Popup className="game-picker p-1.5">
           <BaseSelect.List
             ref={overlayScrollbar}
-            className="max-h-[min(22rem,var(--available-height))] overflow-y-auto p-1.5"
+            className="max-h-[min(22rem,var(--available-height))] overflow-y-auto"
           >
             {options.map((option) => (
               <BaseSelect.Item key={option.value} value={option.value} className="game-option group">
@@ -169,23 +171,14 @@ const PrSelect = ({ repo, pr, onChange }: { repo: string; pr: string; onChange: 
   return <Select label="Pull request" value={pr} onChange={onChange} options={options} />
 }
 
-const mcpCommand = (token: string) =>
-  `claude mcp add --transport http sloppa-artifacts ${window.location.origin}/mcp --header "Authorization: Bearer ${token}"`
-
-const NoArtifacts = () => {
-  const command = mcpCommand(useAtomValue(tokenAtom) ?? "<token>")
-  return (
-    <Notice title="no artifacts yet" mood="loaf">
-      <p>connect an agent over MCP, then ask it to attach screenshots to its PR:</p>
-      <div className="mt-3 flex flex-col items-center gap-2">
-        <code className="max-w-full rounded-lg border-2 border-ink bg-white px-3 py-1.5 text-left font-mono text-xs break-all text-ink">
-          {command}
-        </code>
-        <CopyButton value={command} label="copy" toast="copied" tone="green" />
-      </div>
-    </Notice>
-  )
-}
+const NoArtifacts = () => (
+  <Notice title="no artifacts yet" mood="loaf">
+    <p>connect an agent over MCP, then ask it to attach screenshots to its PRs:</p>
+    <div className="mx-auto mt-4 max-w-md">
+      <AgentSetup />
+    </div>
+  </Notice>
+)
 
 /** Every artifact of a PR, or the ones matching a search, as one long grid. */
 const Pages = ({ filter }: { filter: ListFilter }) => (
@@ -271,7 +264,7 @@ const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
   )
 }
 
-/** Stats are the cheapest authorized call: they decide between the dashboard (skeleton until then) and a rejected token. */
+/** Stats are the cheapest authorized call: the dashboard skeleton waits on them. */
 const SignedIn = () => {
   const stats = useAtomValue(statsAtom)
   useRevalidate(statsAtom)
@@ -279,10 +272,16 @@ const SignedIn = () => {
   return AsyncResult.matchWithError(stats, {
     onInitial: () => <Dashboard stats={null} />,
     onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? <Login invalid /> : <Dashboard stats={undefined} />,
+      Predicate.isTagged(error, "Unauthorized") ? <Login expired /> : <Dashboard stats={undefined} />,
     onDefect: () => <Dashboard stats={undefined} />,
     onSuccess: ({ value }) => <Dashboard stats={value} />
   })
 }
 
-export const ArtifactList = () => (useAtomValue(tokenAtom) === null ? <Login invalid={false} /> : <SignedIn />)
+export const ArtifactList = () =>
+  AsyncResult.matchWithError(useAtomValue(sessionAtom), {
+    onInitial: () => <Dashboard stats={null} />,
+    onError: (error) => (Predicate.isTagged(error, "Unauthorized") ? <Login /> : <Dashboard stats={undefined} />),
+    onDefect: () => <Dashboard stats={undefined} />,
+    onSuccess: () => <SignedIn />
+  })

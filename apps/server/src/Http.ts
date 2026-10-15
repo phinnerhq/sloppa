@@ -1,39 +1,129 @@
 import {
+  Agent,
   Api,
   ArtifactId,
   Authorization,
+  CreatedAgent,
+  CurrentUser,
   GROUP_PAGE_SIZE,
   PAGE_SIZE,
+  SESSION_COOKIE,
+  sessionCookie,
+  SetupLink,
+  setupPath,
   StorageError,
   Unauthorized,
-  Uploader
+  User
 } from "@sloppa/api"
-import { Effect, FileSystem, Layer, Option, Redacted, Schema, Stream } from "effect"
+import { DateTime, Effect, FileSystem, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
-import { timingSafeEqual } from "node:crypto"
+import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
+import { SetupRoute, setupPrompt } from "./Setup.ts"
 import { ArtifactStorage, uploadOf } from "./Storage.ts"
 import { Thumbnails } from "./Thumbnails.ts"
 import { UploadTickets } from "./Tickets.ts"
 
-const sameSecret = (a: string, b: string) => {
-  const left = Buffer.from(a)
-  const right = Buffer.from(b)
-  return left.length === right.length && timingSafeEqual(left, right)
-}
-
 const AuthorizationLive = Layer.effect(
   Authorization,
   Effect.gen(function* () {
-    const { uploadToken } = yield* AppConfig
+    const accounts = yield* Accounts
+    const holder = (kind: "session" | "agent", credential: Redacted.Redacted<string>) =>
+      (Redacted.value(credential) === ""
+        ? Effect.succeedNone
+        : accounts.authenticate(kind, Redacted.value(credential))
+      ).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.fail(new Unauthorized({ message: "Sign in, or pass an agent token" })),
+            onSome: Effect.succeed
+          })
+        )
+      )
     return Authorization.of({
+      session: (httpEffect, { credential }) =>
+        Effect.flatMap(holder("session", credential), (user) => Effect.provideService(httpEffect, CurrentUser, user)),
       bearer: (httpEffect, { credential }) =>
-        sameSecret(Redacted.value(credential), Redacted.value(uploadToken))
-          ? Effect.provideService(httpEffect, Uploader, { token: "valid" })
-          : Effect.fail(new Unauthorized({ message: "Missing or invalid token" }))
+        Effect.flatMap(holder("agent", credential), (user) => Effect.provideService(httpEffect, CurrentUser, user))
+    })
+  })
+)
+
+const SessionHandlers = HttpApiBuilder.group(
+  Api,
+  "session",
+  Effect.fn(function* (handlers) {
+    const accounts = yield* Accounts
+    const { publicUrl, trustProxy } = yield* AppConfig
+    const clientOf = (request: HttpServerRequest.HttpServerRequest) => {
+      const forwarded = trustProxy ? request.headers["x-forwarded-for"]?.split(",").at(-1)?.trim() : undefined
+      return forwarded || Option.getOrUndefined(request.remoteAddress)
+    }
+    // Lax keeps the session on links from elsewhere (a PR), but not on another site's POSTs.
+    const cookie = { secure: publicUrl.startsWith("https:"), sameSite: "lax", path: "/" } as const
+    return handlers.handleAll({
+      login: ({ payload, request }) =>
+        accounts.login(payload.username, payload.password, clientOf(request)).pipe(
+          Effect.flatMap(({ account, session, expiresAt }) =>
+            HttpApiBuilder.securitySetCookie(sessionCookie, session, {
+              ...cookie,
+              expires: DateTime.toDate(expiresAt)
+            }).pipe(Effect.as(new User({ username: account.username })))
+          )
+        ),
+      current: () => Effect.map(CurrentUser, (user) => new User({ username: user.username })),
+      logout: () =>
+        Effect.gen(function* () {
+          const session = (yield* HttpServerRequest.HttpServerRequest).cookies[SESSION_COOKIE]
+          if (session !== undefined) yield* accounts.logout(session)
+          yield* HttpApiBuilder.securitySetCookie(sessionCookie, "", { ...cookie, maxAge: 0 })
+        })
+    })
+  })
+)
+
+const AgentsHandlers = HttpApiBuilder.group(
+  Api,
+  "agents",
+  Effect.fn(function* (handlers) {
+    const accounts = yield* Accounts
+    const { publicUrl } = yield* AppConfig
+    return handlers.handleAll({
+      list: () =>
+        CurrentUser.pipe(
+          Effect.flatMap(accounts.agents),
+          Effect.map((agents) =>
+            agents.map(
+              ({ lastUsedAt, ...agent }) => new Agent({ ...agent, ...(lastUsedAt === undefined ? {} : { lastUsedAt }) })
+            )
+          )
+        ),
+      create: ({ payload }) =>
+        CurrentUser.pipe(
+          Effect.flatMap((user) => accounts.createAgent(user, payload.name)),
+          Effect.map(
+            ({ agent, token }) =>
+              new CreatedAgent({
+                agent: new Agent({ id: agent.id, name: agent.name, createdAt: agent.createdAt }),
+                token
+              })
+          )
+        ),
+      revoke: ({ params }) => Effect.flatMap(CurrentUser, (user) => accounts.revokeAgent(user, params.id)),
+      rename: ({ params, payload }) =>
+        Effect.flatMap(CurrentUser, (user) => accounts.renameAgent(user, params.id, payload.name)),
+      createSetup: () =>
+        CurrentUser.pipe(
+          Effect.flatMap(accounts.createSetup),
+          Effect.map(({ id, code, expiresAt }) => {
+            const url = `${publicUrl}${setupPath(code)}`
+            return new SetupLink({ id, url, prompt: setupPrompt(publicUrl, url), expiresAt })
+          })
+        ),
+      revokeSetup: ({ params }) => Effect.flatMap(CurrentUser, (user) => accounts.revokeSetupById(user, params.id))
     })
   })
 )
@@ -214,18 +304,18 @@ const TicketUploadRoute = Layer.effectDiscard(
   })
 )
 
-/** The MCP endpoint lives outside the typed API, so it gets the same bearer check here. */
+/** The MCP endpoint lives outside the typed API, so it gets the agent token check here. */
 const McpAuthorization = HttpRouter.use(
   Effect.fn(function* (router) {
-    const { uploadToken } = yield* AppConfig
-    const expected = `Bearer ${Redacted.value(uploadToken)}`
+    const accounts = yield* Accounts
     yield* router.addGlobalMiddleware((httpApp) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
         const path = new URL(request.url, "http://local").pathname
         if (path !== "/mcp" && !path.startsWith("/mcp/")) return yield* httpApp
-        if (sameSecret(request.headers["authorization"] ?? "", expected)) return yield* httpApp
-        return HttpServerResponse.text("Missing or invalid token\n", {
+        const token = /^Bearer +(\S+)$/i.exec(request.headers["authorization"] ?? "")?.[1]
+        if (token !== undefined && Option.isSome(yield* accounts.authenticate("agent", token))) return yield* httpApp
+        return HttpServerResponse.text("Missing or invalid token: set this agent up from the dashboard\n", {
           status: 401,
           headers: { "www-authenticate": "Bearer" }
         })
@@ -243,12 +333,14 @@ const StaticFiles = Layer.unwrap(
 
 export const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/api/openapi.json" }).pipe(
-    Layer.provide(ArtifactsHandlers.pipe(Layer.provide(AuthorizationLive)))
+    Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers)),
+    Layer.provide(AuthorizationLive)
   ),
   RawFileRoute,
   ThumbnailRoute,
   TicketUploadRoute,
   McpRoutes,
   McpAuthorization,
+  SetupRoute,
   StaticFiles
-).pipe(Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer)))
+).pipe(Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer)), Layer.provideMerge(Accounts.layer))

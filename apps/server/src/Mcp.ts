@@ -190,9 +190,9 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
 const INSTRUCTIONS = `Stores PR artifacts (screenshots, recordings, logs, reports) and gives back stable links.
 To attach a local file: call request_upload, run its command, then put its markdown in the PR description or a comment.
 For text you already have in hand, upload_text does it in one call.
-Links are public to anyone holding them; listing needs the token this server was configured with.`
+Links are public to anyone holding them; listing needs this agent's token.`
 
-/** Streamable HTTP MCP at `/mcp`; bearer auth is installed by the router (see `Http.ts`). */
+/** Streamable HTTP MCP at `/mcp`; agent token auth is installed by the router (see `Http.ts`). */
 export const McpRoutes = McpServer.toolkit(ArtifactTools).pipe(
   Layer.provide(ArtifactToolHandlers),
   Layer.provide(

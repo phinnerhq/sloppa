@@ -2,7 +2,7 @@ import { ArtifactId } from "@sloppa/api"
 import { Context, DateTime, Duration, Effect, Layer, Option, Redacted, Result, Schema } from "effect"
 import { Base64Url } from "effect/encoding"
 import { createHmac, timingSafeEqual } from "node:crypto"
-import { AppConfig } from "./Config.ts"
+import { Accounts } from "./Accounts.ts"
 
 /** What an upload ticket lets its holder store: one file, under an id picked up front. */
 export const Ticket = Schema.Struct({
@@ -23,7 +23,7 @@ const decodeTicket = Schema.decodeUnknownOption(Schema.fromJsonString(Ticket))
 /**
  * Stateless, HMAC-signed upload URLs. An agent gets one from the MCP server
  * and `curl`s its file to it, so the bytes never pass through the model and
- * the agent never sees the server's token.
+ * curl needs no credentials.
  */
 export class UploadTickets extends Context.Service<
   UploadTickets,
@@ -37,9 +37,8 @@ export class UploadTickets extends Context.Service<
   static readonly layer = Layer.effect(
     UploadTickets,
     Effect.gen(function* () {
-      const { uploadToken } = yield* AppConfig
-      // Derived, so a leaked ticket signature says nothing about the token itself.
-      const key = createHmac("sha256", Redacted.value(uploadToken)).update("sloppa upload tickets").digest()
+      const { ticketKey } = yield* Accounts
+      const key = Buffer.from(Redacted.value(ticketKey), "base64url")
       const sign = (body: string) => createHmac("sha256", key).update(body).digest()
 
       const issue = Effect.fn("UploadTickets.issue")(function* (input: Omit<Ticket, "id" | "exp">) {

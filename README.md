@@ -18,26 +18,24 @@ Or with Docker:
 ```sh
 docker build -t sloppa-artifacts .
 docker run -d -p 127.0.0.1:4100:4100 -v sloppa-artifacts-data:/data \
-  -e UPLOAD_TOKEN=change-me -e PUBLIC_URL=https://artifacts.example.com sloppa-artifacts
+  -e BOOTSTRAP_USERNAME=admin -e BOOTSTRAP_PASSWORD=change-me -e PUBLIC_URL=https://artifacts.example.com sloppa-artifacts
 ```
 
 ## Connect an agent
 
-```sh
-claude mcp add --transport http sloppa-artifacts http://127.0.0.1:4100/mcp \
-  --header "Authorization: Bearer $UPLOAD_TOKEN"
-```
+Sign in, open the robot menu and make a setup prompt. Paste it into Claude Code, Codex or any agent with a shell: it trades the link for a token of its own, installs the MCP server, then asks whether to revoke the link. Links expire after 30 minutes; until then the same prompt sets up more agents. Revoke an agent's token from the same menu.
 
 The agent gets a one-time upload URL per file, `curl`s the file to it, and pastes the returned markdown into the PR.
 
 ## Config
 
-| Variable                                                                            |                                                                              |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `UPLOAD_TOKEN`                                                                      | Required. Guards the dashboard, API and MCP.                                 |
-| `PUBLIC_URL`                                                                        | Base for every link handed out.                                              |
-| `DATA_DIR`                                                                          | SQLite index, thumbnails, and the files when S3 is off. Defaults to `.data`. |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Store files in a bucket instead.                                             |
-| `HOST`, `PORT`, `STATIC_DIR`                                                        | Defaults: `127.0.0.1`, `4100`, unset.                                        |
+| Variable                                                                            |                                                                             |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `BOOTSTRAP_USERNAME`, `BOOTSTRAP_PASSWORD`                                          | The first user. Required until one exists; a new password resets theirs.    |
+| `PUBLIC_URL`                                                                        | Base for every link handed out.                                             |
+| `DATA_DIR`                                                                          | Accounts, index, thumbnails, and the files when S3 is off. Default `.data`. |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Store files in a bucket instead.                                            |
+| `TRUST_PROXY`                                                                       | Behind a reverse proxy: rate-limit sign-ins by `X-Forwarded-For`.           |
+| `HOST`, `PORT`, `STATIC_DIR`                                                        | Defaults: `127.0.0.1`, `4100`, unset.                                       |
 
-Shared links are public to anyone holding them; everything else needs the token. API docs live at `/api/openapi.json`.
+Shared links are public to anyone holding them; everything else needs signing in, or an agent token. Keep `DATA_DIR/accounts.sqlite`: the rest of `DATA_DIR` rebuilds from storage. API docs live at `/api/openapi.json`.
