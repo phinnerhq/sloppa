@@ -83,10 +83,13 @@ const UploadText = Tool.make("upload_text", {
   .annotate(Tool.OpenWorld, false)
 
 const ListArtifacts = Tool.make("list_artifacts", {
-  description: "List artifacts, newest first, optionally for one repo or PR.",
+  description: "List artifacts, newest first, optionally for one repo or PR, or matching a search.",
   parameters: Schema.Struct({
     pr: Schema.optionalKey(Pr),
     repo: Schema.optionalKey(Repo),
+    search: Schema.optionalKey(
+      Schema.String.annotate({ description: "Part of the name, id, PR, repo or content type; case-insensitive." })
+    ),
     cursor: Schema.optionalKey(Schema.String.annotate({ description: "nextCursor from the previous page." })),
     limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })))
   }),
@@ -175,7 +178,8 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
             pr
           })
           .pipe(Effect.map(withMarkdown)),
-      list_artifacts: ({ pr, repo, cursor, limit }) => artifacts.list({ pr, repo, cursor, limit: limit ?? 30 }),
+      list_artifacts: ({ pr, repo, search, cursor, limit }) =>
+        artifacts.list({ pr, repo, q: search, cursor, limit: limit ?? 30 }),
       list_pull_requests: ({ repo }) => artifacts.prs(repo).pipe(Effect.map((items) => ({ items }))),
       get_artifact: ({ id }) => artifacts.get(id).pipe(Effect.map(withMarkdown)),
       delete_artifact: ({ id }) => artifacts.remove(id).pipe(Effect.as({ deleted: id }))

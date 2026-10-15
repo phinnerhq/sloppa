@@ -32,12 +32,12 @@ The agent gets a one-time upload URL per file, `curl`s the file to it, and paste
 
 ## Config
 
-| Variable                                                                            |                                                                  |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `UPLOAD_TOKEN`                                                                      | Required. Guards the dashboard, API and MCP.                     |
-| `PUBLIC_URL`                                                                        | Base for every link handed out.                                  |
-| `DATA_DIR`                                                                          | SQLite index, and the files when S3 is off. Defaults to `.data`. |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Store files in a bucket instead.                                 |
-| `HOST`, `PORT`, `STATIC_DIR`                                                        | Defaults: `127.0.0.1`, `4100`, unset.                            |
+| Variable                                                                            |                                                                              |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `UPLOAD_TOKEN`                                                                      | Required. Guards the dashboard, API and MCP.                                 |
+| `PUBLIC_URL`                                                                        | Base for every link handed out.                                              |
+| `DATA_DIR`                                                                          | SQLite index, thumbnails, and the files when S3 is off. Defaults to `.data`. |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Store files in a bucket instead.                                             |
+| `HOST`, `PORT`, `STATIC_DIR`                                                        | Defaults: `127.0.0.1`, `4100`, unset.                                        |
 
 Shared links are public to anyone holding them; everything else needs the token. API docs live at `/api/openapi.json`.

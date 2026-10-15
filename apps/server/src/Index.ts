@@ -37,19 +37,45 @@ const toRow = (artifact: StoredArtifact): Row => ({
   created_ms: DateTime.toEpochMillis(artifact.createdAt)
 })
 
-/** Opaque "created_ms:id" keyset cursor, newest first. */
+/** Opaque keyset cursors: where the last page ended, in its sort order. */
+const encodeCursor = (position: object) => Base64Url.encode(JSON.stringify(position))
+const decodeCursor = <A>(schema: Schema.Codec<A>, cursor: string | undefined) =>
+  cursor === undefined
+    ? Option.none()
+    : Result.getSuccess(Base64Url.decodeString(cursor)).pipe(
+        Option.flatMap(Schema.decodeUnknownOption(Schema.fromJsonString(schema)))
+      )
+
+/** Artifacts, newest first. */
 const Cursor = Schema.Struct({ ms: Schema.Finite, id: Schema.String })
-const encodeCursor = (row: Row) => Base64Url.encode(JSON.stringify({ ms: row.created_ms, id: row.id }))
-const decodeCursor = (cursor: string) =>
-  Result.getSuccess(Base64Url.decodeString(cursor)).pipe(
-    Option.flatMap(Schema.decodeUnknownOption(Schema.fromJsonString(Cursor)))
-  )
+/** Groups, most recently active first; `pr` is "" for the group with none. */
+const GroupCursor = Schema.Struct({ ms: Schema.Finite, pr: Schema.String })
 
 export interface ListQuery {
   readonly repo: string | undefined
   readonly pr: string | undefined
+  /** Only the artifacts filed under no PR; `pr` is ignored then. */
+  readonly noPr: boolean
+  /** A substring of the name, id, PR, repo or content type. */
+  readonly search: string | undefined
   readonly cursor: string | undefined
   readonly limit: number
+}
+
+export interface GroupQuery {
+  readonly repo: string | undefined
+  readonly cursor: string | undefined
+  readonly limit: number
+  readonly previewSize: number
+}
+
+export interface IndexGroup {
+  /** Undefined for the artifacts filed under no PR. */
+  readonly pr: string | undefined
+  readonly repo: string | undefined
+  readonly count: number
+  readonly lastUploadAt: DateTime.Utc
+  readonly preview: ReadonlyArray<StoredArtifact>
 }
 
 export interface IndexStats {
@@ -119,6 +145,10 @@ export class ArtifactIndex extends Context.Service<
       readonly items: ReadonlyArray<StoredArtifact>
       readonly nextCursor: string | undefined
     }>
+    readonly groups: (query: GroupQuery) => Effect.Effect<{
+      readonly items: ReadonlyArray<IndexGroup>
+      readonly nextCursor: string | undefined
+    }>
     readonly repos: Effect.Effect<ReadonlyArray<RepoStats>>
     readonly prs: (repo: string | undefined) => Effect.Effect<ReadonlyArray<PrStats>>
     readonly stats: Effect.Effect<IndexStats>
@@ -141,21 +171,76 @@ export class ArtifactIndex extends Context.Service<
         execute: (id) => sql`SELECT * FROM artifacts WHERE id = ${id}`
       })
 
+      /**
+       * A plain scan, walking the newest-first index and stopping at a page's worth of matches: plenty for
+       * tens of thousands of artifacts. LIKE ignores ASCII case; `%` and `_` in the search are literal.
+       */
+      const matching = (search: string) => {
+        const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`
+        return sql.or(
+          ["name", "id", "pr", "repo", "content_type"].map((column) => sql`${sql(column)} LIKE ${pattern} ESCAPE '\\'`)
+        )
+      }
+
       const findPage = SqlSchema.findAll({
         Request: Schema.Struct({
           repo: Schema.NullOr(Schema.String),
           pr: Schema.NullOr(Schema.String),
+          noPr: Schema.Boolean,
+          search: Schema.NullOr(Schema.String),
           after: Schema.NullOr(Cursor),
           limit: Schema.Finite
         }),
         Result: Row,
-        execute: ({ repo, pr, after, limit }) =>
+        execute: ({ repo, pr, noPr, search, after, limit }) =>
           sql`SELECT * FROM artifacts WHERE ${sql.and([
             repo === null ? sql`1 = 1` : sql`repo = ${repo}`,
-            pr === null ? sql`1 = 1` : sql`pr = ${pr}`,
+            noPr ? sql`pr IS NULL` : pr === null ? sql`1 = 1` : sql`pr = ${pr}`,
+            search === null ? sql`1 = 1` : matching(search),
             after === null
               ? sql`1 = 1`
               : sql`(created_ms < ${after.ms} OR (created_ms = ${after.ms} AND id < ${after.id}))`
+          ])} ORDER BY created_ms DESC, id DESC LIMIT ${limit}`
+      })
+
+      const GroupRow = Schema.Struct({
+        pr: Schema.NullOr(Schema.String),
+        repo: Schema.NullOr(Schema.String),
+        count: Schema.Finite,
+        last_ms: Schema.Finite
+      })
+      // Every artifact without a PR lands in the one NULL group, which sorts as "" among equal timestamps.
+      const findGroups = SqlSchema.findAll({
+        Request: Schema.Struct({
+          repo: Schema.NullOr(Schema.String),
+          after: Schema.NullOr(GroupCursor),
+          limit: Schema.Finite
+        }),
+        Result: GroupRow,
+        execute: ({ repo, after, limit }) =>
+          sql`SELECT pr, MAX(repo) AS repo, COUNT(*) AS count, MAX(created_ms) AS last_ms FROM artifacts
+            WHERE ${repo === null ? sql`1 = 1` : sql`repo = ${repo}`}
+            GROUP BY pr
+            HAVING ${
+              after === null
+                ? sql`1 = 1`
+                : sql`last_ms < ${after.ms} OR (last_ms = ${after.ms} AND COALESCE(pr, '') < ${after.pr})`
+            }
+            ORDER BY last_ms DESC, COALESCE(pr, '') DESC LIMIT ${limit}`
+      })
+
+      // One small lookup per group, each walking the (pr, created_ms) index: cheaper than ranking the whole table.
+      const findPreview = SqlSchema.findAll({
+        Request: Schema.Struct({
+          pr: Schema.NullOr(Schema.String),
+          repo: Schema.NullOr(Schema.String),
+          limit: Schema.Finite
+        }),
+        Result: Row,
+        execute: ({ pr, repo, limit }) =>
+          sql`SELECT * FROM artifacts WHERE ${sql.and([
+            pr === null ? sql`pr IS NULL` : sql`pr = ${pr}`,
+            repo === null ? sql`1 = 1` : sql`repo = ${repo}`
           ])} ORDER BY created_ms DESC, id DESC LIMIT ${limit}`
       })
 
@@ -214,11 +299,13 @@ export class ArtifactIndex extends Context.Service<
         remove: (id) => sql`DELETE FROM artifacts WHERE id = ${id}`.pipe(Effect.orDie, Effect.asVoid),
         get: (id) => findById(id).pipe(Effect.map(Option.map(fromRow)), Effect.orDie),
         list: Effect.fn("ArtifactIndex.list")(function* (query: ListQuery) {
-          const after = query.cursor === undefined ? Option.none() : decodeCursor(query.cursor)
+          const after = decodeCursor(Cursor, query.cursor)
           // One extra row tells us whether there is a next page.
           const rows = yield* findPage({
             repo: query.repo ?? null,
             pr: query.pr ?? null,
+            noPr: query.noPr,
+            search: query.search ?? null,
             after: Option.getOrNull(after),
             limit: query.limit + 1
           }).pipe(Effect.orDie)
@@ -226,7 +313,40 @@ export class ArtifactIndex extends Context.Service<
           const last = page.at(-1)
           return {
             items: page.map(fromRow),
-            nextCursor: rows.length > query.limit && last !== undefined ? encodeCursor(last) : undefined
+            nextCursor:
+              rows.length > query.limit && last !== undefined
+                ? encodeCursor({ ms: last.created_ms, id: last.id })
+                : undefined
+          }
+        }),
+        groups: Effect.fn("ArtifactIndex.groups")(function* (query: GroupQuery) {
+          const repo = query.repo ?? null
+          const rows = yield* findGroups({
+            repo,
+            after: Option.getOrNull(decodeCursor(GroupCursor, query.cursor)),
+            limit: query.limit + 1
+          }).pipe(Effect.orDie)
+          const page = rows.slice(0, query.limit)
+          const items = yield* Effect.forEach(page, (row) =>
+            findPreview({ pr: row.pr, repo, limit: query.previewSize }).pipe(
+              Effect.orDie,
+              Effect.map((preview): IndexGroup => ({
+                pr: row.pr ?? undefined,
+                // The PR-less group spans repos unless the list is narrowed to one.
+                repo: row.pr === null ? (repo ?? undefined) : (row.repo ?? undefined),
+                count: row.count,
+                lastUploadAt: DateTime.makeUnsafe(row.last_ms),
+                preview: preview.map(fromRow)
+              }))
+            )
+          )
+          const last = page.at(-1)
+          return {
+            items,
+            nextCursor:
+              rows.length > query.limit && last !== undefined
+                ? encodeCursor({ ms: last.last_ms, pr: last.pr ?? "" })
+                : undefined
           }
         }),
         repos: findRepos(undefined).pipe(

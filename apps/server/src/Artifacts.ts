@@ -1,13 +1,17 @@
 import {
   Artifact,
   type ArtifactId,
+  ArtifactGroup,
   ArtifactPage,
+  GROUP_PREVIEW_SIZE,
+  GroupPage,
   normalizePr,
   PrSummary,
   rawPath,
   RepoSummary,
   repoOfPr,
   Stats,
+  thumbPath,
   viewerPath
 } from "@sloppa/api"
 import { Context, Effect, Layer, Option } from "effect"
@@ -15,6 +19,7 @@ import { AppConfig } from "./Config.ts"
 import { resolveContentType } from "./ContentType.ts"
 import { ArtifactIndex } from "./Index.ts"
 import { ArtifactStorage, type StoredArtifact, type Upload } from "./Storage.ts"
+import { hasThumbnail, Thumbnails } from "./Thumbnails.ts"
 
 export interface UploadInput {
   readonly id?: ArtifactId | undefined
@@ -29,6 +34,7 @@ export interface UploadInput {
 const makeArtifacts = Effect.gen(function* () {
   const storage = yield* ArtifactStorage
   const index = yield* ArtifactIndex
+  const thumbnails = yield* Thumbnails
   const { publicUrl } = yield* AppConfig
 
   const present = (stored: StoredArtifact) =>
@@ -41,12 +47,15 @@ const makeArtifacts = Effect.gen(function* () {
       ...(stored.repo === undefined ? {} : { repo: stored.repo }),
       ...(stored.pr === undefined ? {} : { pr: stored.pr }),
       url: `${publicUrl}${viewerPath(stored.id)}`,
-      rawUrl: `${publicUrl}${rawPath(stored.id, stored.name)}`
+      rawUrl: `${publicUrl}${rawPath(stored.id, stored.name)}`,
+      ...(hasThumbnail(stored.contentType) ? { thumbUrl: `${publicUrl}${thumbPath(stored.id)}` } : {})
     })
 
   const list = (query: {
     repo?: string | undefined
     pr?: string | undefined
+    noPr?: boolean | undefined
+    q?: string | undefined
     cursor?: string | undefined
     limit: number
   }) =>
@@ -54,6 +63,8 @@ const makeArtifacts = Effect.gen(function* () {
       .list({
         repo: query.repo,
         pr: query.pr === undefined ? undefined : normalizePr(query.pr),
+        noPr: query.noPr ?? false,
+        search: query.q?.trim() || undefined,
         cursor: query.cursor,
         limit: query.limit
       })
@@ -63,6 +74,25 @@ const makeArtifacts = Effect.gen(function* () {
             new ArtifactPage({ items: items.map(present), ...(nextCursor === undefined ? {} : { nextCursor }) })
         )
       )
+
+  const groups = (query: { repo?: string | undefined; cursor?: string | undefined; limit: number }) =>
+    index.groups({ repo: query.repo, cursor: query.cursor, limit: query.limit, previewSize: GROUP_PREVIEW_SIZE }).pipe(
+      Effect.map(
+        ({ items, nextCursor }) =>
+          new GroupPage({
+            items: items.map(
+              ({ pr, repo, preview, ...rest }) =>
+                new ArtifactGroup({
+                  ...rest,
+                  ...(pr === undefined ? {} : { pr }),
+                  ...(repo === undefined ? {} : { repo }),
+                  preview: preview.map(present)
+                })
+            ),
+            ...(nextCursor === undefined ? {} : { nextCursor })
+          })
+      )
+    )
 
   const get = (id: ArtifactId) =>
     index.get(id).pipe(
@@ -91,7 +121,8 @@ const makeArtifacts = Effect.gen(function* () {
     return present(stored)
   })
 
-  const remove = (id: ArtifactId) => storage.remove(id).pipe(Effect.ensuring(index.remove(id)))
+  const remove = (id: ArtifactId) =>
+    storage.remove(id).pipe(Effect.ensuring(Effect.andThen(index.remove(id), thumbnails.remove(id))))
 
   const exists = (id: ArtifactId) =>
     storage.head(id).pipe(
@@ -116,15 +147,17 @@ const makeArtifacts = Effect.gen(function* () {
 
   const repos = index.repos.pipe(Effect.map((repos) => repos.map((repo) => new RepoSummary(repo))))
 
-  return { present, list, get, upload, remove, exists, stats, prs, repos }
+  return { present, list, groups, get, upload, remove, exists, stats, prs, repos }
 })
 
 /** Everything you can do with artifacts, shared by the HTTP API and the MCP server. */
 export class Artifacts extends Context.Service<Artifacts, Effect.Success<typeof makeArtifacts>>()(
   "sloppa/server/Artifacts"
 ) {
-  /** Also hands out the storage, which the raw file route streams from directly. */
+  /** Also hands out the storage and thumbnails, which the file routes serve from directly. */
   static readonly layer = Layer.effect(Artifacts, makeArtifacts).pipe(
-    Layer.provideMerge(ArtifactIndex.layer.pipe(Layer.provideMerge(ArtifactStorage.layer)))
+    Layer.provideMerge(
+      Layer.mergeAll(ArtifactIndex.layer, Thumbnails.layer).pipe(Layer.provideMerge(ArtifactStorage.layer))
+    )
   )
 }

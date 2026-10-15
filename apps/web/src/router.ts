@@ -23,8 +23,9 @@ export interface Navigation {
 /*
  * Every history entry carries a key and its depth: popstate compares depths to know the direction,
  * and scroll positions are kept per key since the browser can't restore them before React renders.
+ * `from` is the URL it was opened from, so a back button knows when it can simply go back.
  */
-type Entry = { readonly key: number; readonly depth: number }
+type Entry = { readonly key: number; readonly depth: number; readonly from?: string }
 
 const isEntry = (state: unknown): state is Entry =>
   typeof state === "object" && state !== null && "key" in state && "depth" in state
@@ -54,8 +55,14 @@ const leave = (next: Entry, direction: Direction, uaTransition = false) => {
   scrolls.set(current.key, window.scrollY)
   current = next
   rememberListSearch()
-  // A new page mounts with the new query already, telling the old one would only flash it with the wrong filters.
-  if (window.location.pathname === pathname) return notifySearch()
+  // Same page, another query (opening a mosaic tile, or backing out of one): it re-renders in place, so
+  // the scroll follows the entry here. A new page mounts with the new query already, telling the old one
+  // would only flash it with the wrong filters.
+  if (window.location.pathname === pathname) {
+    notifySearch()
+    restoreScroll(scrolls.get(current.key) ?? 0)
+    return
+  }
   pathname = window.location.pathname
   // A swipe back the browser already animated shouldn't animate twice.
   const navigation = { path: pathname, direction: uaTransition ? null : direction }
@@ -68,11 +75,15 @@ window.addEventListener("popstate", (event) => {
   leave(next, next.depth < current.depth ? "back" : "forward", event.hasUAVisualTransition)
 })
 
+let stopRestoring = () => {}
+
 /**
  * Pages often render a loading state first, too short to scroll back into. Keep scrolling as the page
- * grows, until it fits, the user scrolls themselves, or a couple of seconds pass. Returns the cleanup.
+ * grows, until it fits, the user scrolls themselves, a couple of seconds pass, or another navigation
+ * takes over. Returns the cleanup.
  */
 const restoreScroll = (top: number) => {
+  stopRestoring()
   window.scrollTo({ top })
   if (top === 0 || window.scrollY >= top - 1) return
   const observer = new ResizeObserver(() => {
@@ -88,6 +99,7 @@ const restoreScroll = (top: number) => {
   }
   observer.observe(document.body)
   for (const type of interactions) window.addEventListener(type, stop, { passive: true })
+  stopRestoring = stop
   return stop
 }
 
@@ -109,18 +121,38 @@ export const useBeforeNavigate = (listener: (navigation: Navigation) => void) =>
     return () => void beforeListeners.delete(listener)
   }, [listener])
 
+const here = () => `${window.location.pathname}${window.location.search}`
+
 export const navigate = (path: string) => {
-  const next = { key: Date.now(), depth: current.depth + 1 }
+  const next = { key: Date.now(), depth: current.depth + 1, from: here() }
   window.history.pushState(next, "", path)
   leave(next, "forward")
 }
 
-/** Plain anchors that stay in the SPA on a normal click but still open in new tabs. */
-export const onLinkClick = (path: string) => (event: React.MouseEvent) => {
-  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-  event.preventDefault()
-  navigate(path)
+const sameUrl = (a: string, b: string) => {
+  const [left, right] = [new URL(a, window.location.origin), new URL(b, window.location.origin)]
+  left.searchParams.sort()
+  right.searchParams.sort()
+  return left.pathname === right.pathname && left.search === right.search
 }
+
+/**
+ * For back buttons: when `path` is where this entry was opened from, go back through history, which
+ * lands on it as it was left, scroll and all. Otherwise (a shared link, a reload) open it anew.
+ */
+export const returnTo = (path: string) => {
+  if (current.from !== undefined && sameUrl(current.from, path)) window.history.back()
+  else navigate(path)
+}
+
+/** Plain anchors that stay in the SPA on a normal click but still open in new tabs. */
+export const onLinkClick =
+  (path: string, go: (path: string) => void = navigate) =>
+  (event: React.MouseEvent) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    event.preventDefault()
+    go(path)
+  }
 
 export const listPath = () => `/${lastListSearch}`
 

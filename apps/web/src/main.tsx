@@ -8,7 +8,7 @@ import { tokenAtom } from "./api.ts"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
 import { Credits } from "./components/Credits.tsx"
-import { Button, Doodles, Floppa, Toaster } from "./components/ui.tsx"
+import { Button, Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
 import "./index.css"
 import { type Direction, type Navigation, onLinkClick, type Route, useBeforeNavigate, useRoute } from "./router.ts"
 
@@ -73,7 +73,6 @@ const Page = ({ route }: { route: Route }) =>
 
 const EASE_OUT = "cubic-bezier(0.22, 1, 0.36, 1)"
 const EASE_IN = "cubic-bezier(0.5, 0, 0.75, 0)"
-const pageTop = (element: HTMLElement) => element.getBoundingClientRect().top + window.scrollY
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches
 
 const pageKey = (route: Route) => (route._tag === "Artifact" ? `artifact/${route.id}` : route._tag)
@@ -159,7 +158,7 @@ const usePageTransitions = (route: Route, navigation: Navigation) => {
 
   useBeforeNavigate(
     useCallback(({ direction }: Navigation) => {
-      footerFrom.current = footer.current === null ? null : pageTop(footer.current)
+      footerFrom.current = footer.current?.getBoundingClientRect().top ?? null
       headerFrom.current = header.current?.getBoundingClientRect() ?? null
       leavingScroll.current = window.scrollY
       // The same element object, so React keeps the old page mounted without re-rendering it.
@@ -195,7 +194,9 @@ const usePageTransitions = (route: Route, navigation: Navigation) => {
       easing: EASE_OUT,
       fill: "backwards"
     })
-    const shift = from === null || footer.current === null ? 0 : from - pageTop(footer.current)
+    // On screen, like the old page and the header: the new page may scroll elsewhere, and the footer should
+    // set off from where it was seen, not from where it was in the old page.
+    const shift = from === null || footer.current === null ? 0 : from - footer.current.getBoundingClientRect().top
     const glide =
       shift === 0
         ? undefined
@@ -252,9 +253,7 @@ const App = () => {
 }
 
 // An overlay scrollbar for the page, so content never shifts when it appears or goes.
-OverlayScrollbars(document.body, {
-  scrollbars: { theme: "os-theme-sloppa", autoHide: "move", autoHideDelay: 900, clickScroll: true }
-})
+OverlayScrollbars(document.body, scrollbars("move"))
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

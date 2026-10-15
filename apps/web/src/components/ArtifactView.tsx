@@ -12,9 +12,9 @@ import {
   textPreviewAtom,
   tokenAtom
 } from "../api.ts"
-import { formatAgo, formatDate, formatSize, kindOf, markdownFor, prLabel } from "../format.ts"
-import { listPath, navigate, onLinkClick } from "../router.ts"
-import { Button, ButtonLink, CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
+import { formatAgo, formatDate, formatSize, kindOf, markdownFor } from "../format.ts"
+import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
+import { Button, ButtonLink, CopyButton, LinkButton, Loading, Notice, PrName, useToast } from "./ui.tsx"
 
 const TextPreview = ({ url }: { url: string }) => {
   const result = useAtomValue(textPreviewAtom(url))
@@ -115,8 +115,9 @@ const Stat = ({ label, children }: { label: string; children: ReactNode }) => (
 )
 
 const Inspector = ({ artifact }: { artifact: Artifact }) => {
+  // minmax(0, …): a long name in the sidebar truncates instead of widening the page.
   return (
-    <div className="grid items-start gap-5 lg:grid-cols-[1fr_300px]">
+    <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="panel animate-rise-in overflow-hidden">
         <Preview artifact={artifact} />
       </div>
@@ -125,8 +126,13 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
         <dl>
           {artifact.pr !== undefined && (
             <Stat label="PR">
-              <a href={artifact.pr} target="_blank" rel="noreferrer" className="text-sky-deep hover:underline">
-                {prLabel(artifact.pr)}
+              <a
+                href={artifact.pr}
+                target="_blank"
+                rel="noreferrer"
+                className="flex justify-end text-sky-deep hover:underline"
+              >
+                <PrName pr={artifact.pr} />
               </a>
             </Stat>
           )}
@@ -181,7 +187,7 @@ const decodeId = Schema.decodeUnknownOption(ArtifactId)
 
 export const ArtifactView = ({ id }: { id: string }) => (
   <div className="space-y-5">
-    <ButtonLink href={listPath()} onClick={onLinkClick(listPath())} size="sm">
+    <ButtonLink href={listPath()} onClick={onLinkClick(listPath(), returnTo)} size="sm">
       <ArrowLeftIcon size={16} /> all artifacts
     </ButtonLink>
     {Option.match(decodeId(id), {

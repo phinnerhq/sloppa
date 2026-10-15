@@ -1,49 +1,17 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
+import { useAtomValue } from "@effect/atom-react"
 import { Select as BaseSelect } from "@base-ui/react/select"
-import { AnimatePresence, motion } from "motion/react"
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react"
-import type { Artifact, Stats } from "@sloppa/api"
+import { ArrowLeftIcon, CaretDownIcon, CheckIcon } from "@phosphor-icons/react"
+import type { Stats } from "@sloppa/api"
 import { Predicate } from "effect"
-import { AsyncResult, type Atom } from "effect/reactivity"
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
-import { artifactPagesAtom, type ListFilter, prsAtom, reposAtom, statsAtom, tokenAtom } from "../api.ts"
-import { colorFor, formatAgo, formatAgoShort, formatSize, kindOf, prLabel } from "../format.ts"
-import { onLinkClick, useQueryParam } from "../router.ts"
-import { Button, CopyButton, extensionOf, Floppa, Notice } from "./ui.tsx"
-
-const Login = ({ invalid }: { invalid: boolean }) => {
-  const setToken = useAtomSet(tokenAtom)
-  const [value, setValue] = useState("")
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (value.trim() !== "") setToken(value.trim())
-      }}
-      className="panel animate-pop-in mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-8 text-center"
-    >
-      <Floppa mood={invalid ? "hiss" : "stare"} className="h-32 w-auto" />
-      <div className="space-y-1">
-        <p className="font-game text-2xl">{invalid ? "that token was rejected" : "token required"}</p>
-        <p className="text-sm font-semibold text-ink/70">
-          Enter the server's <code className="font-mono">UPLOAD_TOKEN</code> to browse. Shared links work without it.
-        </p>
-      </div>
-      <input
-        type="password"
-        autoFocus
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="token"
-        aria-label="Token"
-        className="panel game-field w-full bg-white px-4 py-2.5 font-semibold placeholder:text-ink/40"
-      />
-      <Button type="submit" tone="green" size="lg" className="w-full">
-        sign in
-      </Button>
-    </form>
-  )
-}
+import { AsyncResult } from "effect/reactivity"
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react"
+import { artifactPagesAtom, type ListFilter, NO_PR, prsAtom, reposAtom, statsAtom, tokenAtom } from "../api.ts"
+import { formatAgo, formatSize, prLabel } from "../format.ts"
+import { onLinkClick, returnTo, useQueryParam } from "../router.ts"
+import { Inventory, InventorySkeleton, ItemCount, Paged, PrTitle, SlotsSkeleton, useRevalidate } from "./Inventory.tsx"
+import { Login } from "./Login.tsx"
+import { Mosaic } from "./Mosaic.tsx"
+import { ButtonLink, CopyButton, Floppa, Notice, overlayScrollbar, PrName } from "./ui.tsx"
 
 /** Two wave layers drifting against each other, offset per card so they never slosh in sync. */
 const Liquid = ({ color, delay }: { color: string; delay: number }) => (
@@ -111,7 +79,10 @@ const StatsRow = ({ stats }: { stats: Stats | null }) => (
 
 interface Option {
   readonly value: string
+  /** Also what type-ahead matches. */
   readonly label: string
+  /** Shown instead of the label, in the list and the trigger. */
+  readonly display?: ReactNode
   readonly count?: number
 }
 
@@ -132,7 +103,12 @@ const Select = ({
 }) => (
   <BaseSelect.Root items={options} value={value} onValueChange={(next) => onChange(next ?? "")} modal={false}>
     <BaseSelect.Trigger aria-label={label} className="game-select game-field">
-      <BaseSelect.Value className="min-w-0 truncate" />
+      <BaseSelect.Value className="min-w-0 truncate">
+        {(selected: string) => {
+          const option = options.find((o) => o.value === selected)
+          return option?.display ?? option?.label
+        }}
+      </BaseSelect.Value>
       <BaseSelect.Icon className="shrink-0 transition-transform duration-150 in-data-popup-open:rotate-180">
         <CaretDownIcon size={14} />
       </BaseSelect.Icon>
@@ -140,13 +116,18 @@ const Select = ({
     <BaseSelect.Portal>
       <BaseSelect.Positioner alignItemWithTrigger={false} align="start" sideOffset={10} className="z-40 outline-none">
         <BaseSelect.Popup className="game-picker">
-          <BaseSelect.List className="max-h-[min(22rem,var(--available-height))] overflow-y-auto p-1.5">
+          <BaseSelect.List
+            ref={overlayScrollbar}
+            className="max-h-[min(22rem,var(--available-height))] overflow-y-auto p-1.5"
+          >
             {options.map((option) => (
               <BaseSelect.Item key={option.value} value={option.value} className="game-option group">
                 <BaseSelect.ItemIndicator className="col-start-1">
                   <CheckIcon size={14} />
                 </BaseSelect.ItemIndicator>
-                <BaseSelect.ItemText className="col-start-2 min-w-0 truncate">{option.label}</BaseSelect.ItemText>
+                <BaseSelect.ItemText className="col-start-2 min-w-0 truncate">
+                  {option.display ?? option.label}
+                </BaseSelect.ItemText>
                 {option.count !== undefined && (
                   <span className="col-start-3 rounded-md border-2 border-ink bg-gold px-1.5 font-game text-xs group-data-selected:bg-cream">
                     {option.count}
@@ -174,149 +155,20 @@ const RepoSelect = ({ repo, onChange }: { repo: string; onChange: (repo: string)
 const PrSelect = ({ repo, pr, onChange }: { repo: string; pr: string; onChange: (pr: string) => void }) => {
   const prs = AsyncResult.getOrElse(useAtomValue(prsAtom(repo)), () => [])
   useRevalidate(prsAtom(repo))
-  // Within one repo "#42" is enough; across repos keep the owner/repo prefix.
-  const label = (url: string) => (repo === "" ? prLabel(url) : prLabel(url).replace(/^.*(#\d+)$/, "$1"))
+  // Within one repo "#42" is enough; across repos keep the owner/repo prefix, without losing the number.
+  const option = (url: string): Option =>
+    repo === ""
+      ? { value: url, label: prLabel(url), display: <PrName pr={url} /> }
+      : { value: url, label: prLabel(url).replace(/^.*(#\d+)$/, "$1") }
   const options: Array<Option> = [
     { value: "", label: "All PRs" },
-    ...prs.map((p) => ({ value: p.pr, label: label(p.pr), count: p.count }))
+    ...prs.map((p) => ({ ...option(p.pr), count: p.count }))
   ]
-  if (pr !== "" && !prs.some((p) => p.pr === pr)) options.push({ value: pr, label: label(pr) })
+  if (pr === NO_PR) options.push({ value: pr, label: "No PR" })
+  else if (pr !== "" && !prs.some((p) => p.pr === pr)) options.push(option(pr))
   return <Select label="Pull request" value={pr} onChange={onChange} options={options} />
 }
 
-const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
-  switch (kindOf(artifact)) {
-    case "image":
-      return <img src={artifact.rawUrl} alt="" loading="lazy" className="size-full object-contain" />
-    case "video":
-      return <video src={`${artifact.rawUrl}#t=0.1`} preload="metadata" muted className="size-full object-contain" />
-    default:
-      return <span className="font-game text-xl text-ink/80">{extensionOf(artifact.name)}</span>
-  }
-}
-
-const Slot = ({ artifact }: { artifact: Artifact }) => {
-  const path = `/a/${artifact.id}`
-  const media = kindOf(artifact) === "image" || kindOf(artifact) === "video"
-  const ago = formatAgoShort(artifact.createdAt)
-  return (
-    <a href={path} onClick={onLinkClick(path)} className="pressable pressable-card block">
-      <div className="pressable-face p-2">
-        <div
-          className={`flex aspect-square items-center justify-center overflow-hidden rounded-lg border-[3px] border-ink ${
-            media ? "checkerboard" : ""
-          }`}
-          style={media ? undefined : { backgroundColor: colorFor(extensionOf(artifact.name)) }}
-        >
-          <Thumbnail artifact={artifact} />
-        </div>
-        <p className="mt-1.5 truncate px-0.5 text-sm font-extrabold" title={artifact.name}>
-          {artifact.name}
-        </p>
-        <p className="truncate px-0.5 text-[11px] font-bold text-ink/55">
-          {formatSize(artifact.size)} · {ago === "now" ? "just now" : `${ago} ago`}
-        </p>
-      </div>
-    </a>
-  )
-}
-
-const GRID = "grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6"
-
-/** A first load: one group's worth of empty slots, sized like the real ones. */
-const InventorySkeleton = () => (
-  <section aria-busy aria-label="Loading artifacts" className="space-y-3">
-    <div className="skeleton h-7 w-56 rounded-lg" />
-    <div className={GRID}>
-      {Array.from({ length: 6 }, (_, i) => (
-        <div key={i} className="panel mt-1 p-2">
-          <div className="skeleton aspect-square rounded-lg" />
-          <div className="skeleton mt-2.5 h-3.5 w-3/4" />
-          <div className="skeleton mt-2 mb-0.5 h-2.5 w-1/2" />
-        </div>
-      ))}
-    </div>
-  </section>
-)
-
-/** Cached data shows instantly when an atom is picked back up; refetch it in the background, once per pick-up. */
-const useRevalidate = (atom: Atom.Atom<AsyncResult.AsyncResult<unknown, unknown>>) => {
-  const result = useAtomValue(atom)
-  const refresh = useAtomRefresh(atom)
-  const checked = useRef<unknown>(null)
-  useEffect(() => {
-    if (checked.current === atom) return
-    checked.current = atom
-    if (AsyncResult.isSuccess(result) && !result.waiting) refresh()
-  }, [atom, result, refresh])
-}
-
-/**
- * Cards and groups pop in with a little bounce and shrink away; whatever stays glides to its new spot.
- * The glide doesn't bounce: a spring's overshoot grows with the distance, and a group jumping from the
- * bottom of the list to the top would fly past its spot and over the filters.
- */
-const pop = {
-  layout: "position",
-  initial: { opacity: 0, scale: 0.85 },
-  animate: { opacity: 1, scale: 1 },
-  exit: { opacity: 0, scale: 0.85, transition: { duration: 0.15, ease: "easeIn" } },
-  transition: {
-    type: "spring",
-    bounce: 0.35,
-    visualDuration: 0.35,
-    layout: { type: "spring", bounce: 0, visualDuration: 0.4 }
-  }
-} as const
-
-const groupByPr = (artifacts: ReadonlyArray<Artifact>) => {
-  const groups = new Map<string | undefined, Array<Artifact>>()
-  for (const artifact of artifacts) {
-    const group = groups.get(artifact.pr) ?? []
-    group.push(artifact)
-    groups.set(artifact.pr, group)
-  }
-  return [...groups.entries()]
-}
-
-const Inventory = ({ artifacts }: { artifacts: ReadonlyArray<Artifact> }) => (
-  <div className="relative flex flex-col gap-8">
-    <AnimatePresence mode="popLayout" initial={false}>
-      {groupByPr(artifacts).map(([pr, items]) => (
-        <motion.section key={pr ?? "none"} {...pop} className="space-y-3">
-          <h2 className="flex flex-wrap items-center gap-2">
-            {pr === undefined ? (
-              <span className="game-title text-xl">no PR</span>
-            ) : (
-              <a
-                href={pr}
-                target="_blank"
-                rel="noreferrer"
-                className="game-title text-xl transition-colors hover:text-sky"
-              >
-                {prLabel(pr)}
-              </a>
-            )}
-            <span className="rounded-md border-2 border-ink bg-gold px-2 font-game text-xs">
-              {items.length} item{items.length === 1 ? "" : "s"}
-            </span>
-          </h2>
-          <div className={`${GRID} relative`}>
-            <AnimatePresence mode="popLayout" initial={false}>
-              {items.map((artifact) => (
-                <motion.div key={artifact.id} {...pop}>
-                  <Slot artifact={artifact} />
-                </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
-        </motion.section>
-      ))}
-    </AnimatePresence>
-  </div>
-)
-
-/** Hooks an agent up to this server: Claude Code syntax, other clients take the same URL and header. */
 const mcpCommand = (token: string) =>
   `claude mcp add --transport http sloppa-artifacts ${window.location.origin}/mcp --header "Authorization: Bearer ${token}"`
 
@@ -335,71 +187,52 @@ const NoArtifacts = () => {
   )
 }
 
-const matches = (search: string) => {
-  const needle = search.trim().toLowerCase()
-  return (a: Artifact) =>
-    needle === "" ||
-    [a.name, a.id, a.pr ?? "", a.repo ?? "", a.contentType].some((f) => f.toLowerCase().includes(needle))
+/** Every artifact of a PR, or the ones matching a search, as one long grid. */
+const Pages = ({ filter }: { filter: ListFilter }) => (
+  <Paged
+    atom={artifactPagesAtom(filter)}
+    skeleton={<InventorySkeleton />}
+    more={<SlotsSkeleton />}
+    empty={<Notice title="nothing matches these filters" mood="loaf" />}
+  >
+    {(pages) => <Inventory artifacts={pages.flatMap((page) => page.items)} headings={filter.pr === ""} />}
+  </Paged>
+)
+
+/** Atop one PR's artifacts: the way back to the mosaic, and the PR with its full count. */
+const PrHeading = ({ repo, pr }: { repo: string; pr: string }) => {
+  const prs = AsyncResult.getOrElse(useAtomValue(prsAtom(repo)), () => [])
+  const count = prs.find((p) => p.pr === pr)?.count
+  const mosaic = repo === "" ? "/" : `/?${new URLSearchParams({ repo })}`
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <ButtonLink href={mosaic} onClick={onLinkClick(mosaic, returnTo)} size="sm">
+        <ArrowLeftIcon size={16} /> all PRs
+      </ButtonLink>
+      <h2 className="flex min-w-0 flex-wrap items-center gap-2">
+        <PrTitle pr={pr === NO_PR ? undefined : pr} />
+        {count !== undefined && <ItemCount count={count} />}
+      </h2>
+    </div>
+  )
 }
 
-type PagesValue = AsyncResult.AsyncResult.Success<Atom.Type<ReturnType<typeof artifactPagesAtom>>>
-
-const Pages = ({ filter, search }: { filter: ListFilter; search: string }) => {
-  const result = useAtomValue(artifactPagesAtom(filter))
-  const loadMore = useAtomSet(artifactPagesAtom(filter))
-  const filtered = filter.repo !== "" || filter.pr !== "" || search.trim() !== ""
-  const keep = useMemo(() => matches(search), [search])
-  useRevalidate(artifactPagesAtom(filter))
-  // A filter that's never been loaded keeps the previous results on screen, dimmed, until its own land:
-  // the cards then animate from one set to the other instead of flashing through a skeleton.
-  const [last, setLast] = useState<PagesValue | null>(null)
-  if (AsyncResult.isSuccess(result) && result.value !== last) setLast(result.value)
-  const shown = AsyncResult.isInitial(result) && last !== null ? AsyncResult.success(last, { waiting: true }) : result
-  const stale = shown !== result
-  return AsyncResult.matchWithError(shown, {
-    onInitial: () => <InventorySkeleton />,
-    onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? (
-        <Login invalid />
-      ) : (
-        <Notice title="couldn't load artifacts" mood="hiss">
-          is the server and its bucket up?
-        </Notice>
-      ),
-    onDefect: () => (
-      <Notice title="couldn't load artifacts" mood="hiss">
-        is the server and its bucket up?
-      </Notice>
-    ),
-    onSuccess: ({ value, waiting }) => {
-      const all = value.items.flatMap((page) => page.items)
-      const visible = all.filter(keep)
-      const hasMore = value.items.at(-1)?.nextCursor !== undefined
-      if (all.length === 0 && !filtered) return <NoArtifacts />
-      return (
-        <div aria-busy={stale} className={`space-y-10 transition-opacity duration-200 ${stale ? "opacity-60" : ""}`}>
-          {visible.length === 0 ? (
-            <Notice title="nothing matches these filters" mood="loaf" />
-          ) : (
-            <Inventory artifacts={visible} />
-          )}
-          {hasMore && (
-            <div className="flex justify-center">
-              <Button tone="blue" disabled={waiting || stale} onClick={() => loadMore()}>
-                {waiting ? "loading…" : "load more"}
-              </Button>
-            </div>
-          )}
-        </div>
-      )
-    }
-  })
+/** `value` once it has stood still for `ms`; clearing it is immediate. */
+const useSettled = (value: string, ms: number) => {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timeout = setTimeout(() => setSettled(value), ms)
+    return () => clearTimeout(timeout)
+  }, [value, ms])
+  return value.trim() === "" ? value : settled
 }
 
 const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
   const [repo, setRepo] = useQueryParam("repo")
   const [pr, setPr] = useQueryParam("pr")
   const [search, setSearch] = useQueryParam("q")
+  // Every settled search is a request: wait for a pause in the typing.
+  const query = useSettled(search, 250)
   return (
     <div className="space-y-8">
       {stats !== undefined && <StatsRow stats={stats} />}
@@ -421,7 +254,19 @@ const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
         />
         <PrSelect repo={repo} pr={pr} onChange={setPr} />
       </div>
-      <Pages filter={{ repo, pr }} search={search} />
+      {pr === "" && query.trim() === "" ? (
+        <div key="mosaic" className="animate-rise-in">
+          <Mosaic
+            repo={repo}
+            empty={repo === "" ? <NoArtifacts /> : <Notice title="nothing in this repo yet" mood="loaf" />}
+          />
+        </div>
+      ) : (
+        <div key="list" className="animate-rise-in space-y-5">
+          {pr !== "" && <PrHeading repo={repo} pr={pr} />}
+          <Pages filter={{ repo, pr, search: query }} />
+        </div>
+      )}
     </div>
   )
 }

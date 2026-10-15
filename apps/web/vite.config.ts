@@ -10,6 +10,6 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 5173,
     // Regex keys: a bare "/f" prefix would also swallow "/floppa".
-    proxy: { "^/api/": api, "^/f/": api, "^/mcp": api }
+    proxy: { "^/api/": api, "^/f/": api, "^/t/": api, "^/mcp": api }
   }
 })

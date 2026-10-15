@@ -8,6 +8,24 @@ import {
   useEffect,
   useState
 } from "react"
+import { OverlayScrollbars, type PartialOptions } from "overlayscrollbars"
+import { prLabel } from "../format.ts"
+
+/** Overlay scrollbars, styled as `os-theme-sloppa`: they float over content, so nothing shifts when one appears. */
+export const scrollbars = (autoHide: "move" | "never"): PartialOptions => ({
+  scrollbars: { theme: "os-theme-sloppa", autoHide, autoHideDelay: 900, clickScroll: true }
+})
+
+/**
+ * Ref for a scrolling list inside a popup: the popup carries an overlay scrollbar, the list stays the
+ * scroller (Base UI scrolls the highlighted option into view) and just loses its native bar.
+ */
+export const overlayScrollbar = (list: HTMLElement | null) => {
+  const popup = list?.parentElement
+  if (list == null || popup == null) return
+  const instance = OverlayScrollbars({ target: popup, elements: { viewport: list } }, scrollbars("never"))
+  return () => instance.destroy()
+}
 
 export type Mood = "stare" | "hiss" | "loaf"
 
@@ -235,4 +253,32 @@ export const extensionOf = (name: string) => {
         .toUpperCase()
         .slice(0, 5)
     : "FILE"
+}
+
+/**
+ * `owner/repo#42` on one line that never loses the number. The rest truncates from its start
+ * ("…hq/phinner.dev"), so the owner goes first and the end of the repo name, the most telling part,
+ * stays longest. Other PR links truncate as they are.
+ */
+export const PrName = ({
+  pr,
+  className = "",
+  numberClassName = ""
+}: {
+  pr: string
+  className?: string
+  numberClassName?: string
+}) => {
+  const match = /^(.+\/.+)(#\d+)$/.exec(prLabel(pr))
+  if (match === null) return <span className={`truncate ${className}`}>{prLabel(pr)}</span>
+  const [, repo, number] = match
+  return (
+    <span className={`flex min-w-0 items-baseline ${className}`}>
+      {/* Right-to-left puts the ellipsis at the start; the left-to-right isolate keeps the text in order. */}
+      <span dir="rtl" className="min-w-0 truncate text-left">
+        <bdi dir="ltr">{repo}</bdi>
+      </span>
+      <span className={`shrink-0 ${numberClassName}`}>{number}</span>
+    </span>
+  )
 }

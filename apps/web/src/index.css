@@ -153,6 +153,20 @@
     --lift: 4px;
     --face-hover: white;
   }
+  /*
+   * Long inventories stay cheap: cards out of sight skip layout and paint, holding the size they last
+   * rendered at. Only once they've rendered (`data-skip`, see `skipOnceRendered`): a card skipping from
+   * the start is laid out at the estimate until the browser finds it's on screen, and anything measured
+   * meanwhile (the footer's glide, layout animations) is thrown off. Skipping also clips like
+   * `contain: paint`, so the clip margin leaves room for a hovered face rising above its card.
+   */
+  .offscreen-skip {
+    contain-intrinsic-block-size: auto var(--estimate, 15rem);
+    overflow-clip-margin: 12px;
+    &[data-skip] {
+      content-visibility: auto;
+    }
+  }
   .tone-green {
     --face: #4cd964;
     --face-hover: #74e787;
@@ -212,7 +226,8 @@
   }
   /* Its popup: a panel that pops out of the trigger. */
   .game-picker {
-    @apply min-w-(--anchor-width) rounded-xl border-[3px] border-ink bg-cream shadow-[0_5px_0_var(--color-ink)] outline-none;
+    /* As wide as its longest option, within reason: past that, options truncate (PRs keep their number). */
+    @apply max-w-[min(26rem,var(--available-width))] min-w-(--anchor-width) rounded-xl border-[3px] border-ink bg-cream shadow-[0_5px_0_var(--color-ink)] outline-none;
     transform-origin: var(--transform-origin);
     transition:
       transform 220ms cubic-bezier(0.3, 1.4, 0.5, 1),

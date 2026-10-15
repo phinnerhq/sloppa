@@ -23,6 +23,20 @@ export interface Upload {
   readonly stream: Stream.Stream<Uint8Array, StorageError>
 }
 
+/** A stream gathered into one buffer of its known size. */
+export const readAll = <E>(stream: Stream.Stream<Uint8Array, E>, size: number) =>
+  Stream.runCollect(stream).pipe(
+    Effect.map((chunks) => {
+      const bytes = new Uint8Array(size)
+      let offset = 0
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      return bytes
+    })
+  )
+
 /** For bytes already in memory. */
 export const uploadOf = (bytes: Uint8Array): Upload => ({ size: bytes.byteLength, stream: Stream.make(bytes) })
 

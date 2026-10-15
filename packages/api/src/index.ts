@@ -29,11 +29,30 @@ export class Artifact extends Schema.Class<Artifact, { readonly brand: unique sy
   /** Viewer page in the SPA. */
   url: Schema.String,
   /** The file itself, served inline. */
-  rawUrl: Schema.String
+  rawUrl: Schema.String,
+  /** A small WebP preview, for images that have one. */
+  thumbUrl: Schema.optionalKey(Schema.String)
 }) {}
 
 export class ArtifactPage extends Schema.Class<ArtifactPage, { readonly brand: unique symbol }>("ArtifactPage")({
   items: Schema.Array(Artifact),
+  /** Pass back as `cursor` for the next page; absent on the last one. */
+  nextCursor: Schema.optionalKey(Schema.String)
+}) {}
+
+/** A PR's artifacts, or the ones filed under no PR, as one tile of the dashboard's mosaic. */
+export class ArtifactGroup extends Schema.Class<ArtifactGroup, { readonly brand: unique symbol }>("ArtifactGroup")({
+  /** Absent for the artifacts that have none. */
+  pr: Schema.optionalKey(Schema.String),
+  repo: Schema.optionalKey(RepoName),
+  count: Schema.Int,
+  lastUploadAt: Schema.DateTimeUtcFromString,
+  /** The newest few, to show what's inside. */
+  preview: Schema.Array(Artifact)
+}) {}
+
+export class GroupPage extends Schema.Class<GroupPage, { readonly brand: unique symbol }>("GroupPage")({
+  items: Schema.Array(ArtifactGroup),
   /** Pass back as `cursor` for the next page; absent on the last one. */
   nextCursor: Schema.optionalKey(Schema.String)
 }) {}
@@ -98,6 +117,8 @@ export class Authorization extends HttpApiMiddleware.Service<
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 export const PAGE_SIZE = 60
+export const GROUP_PAGE_SIZE = 24
+export const GROUP_PREVIEW_SIZE = 4
 
 export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
   .add(
@@ -105,10 +126,22 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
       query: {
         repo: Schema.optional(RepoName),
         pr: Schema.optional(Schema.String),
+        /** Only the artifacts filed under no PR. */
+        noPr: Schema.optional(Schema.Literal("true")),
+        /** Matches name, id, PR, repo or content type, case-insensitively. */
+        q: Schema.optional(Schema.String),
         cursor: Schema.optional(Schema.String),
         limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 })))
       },
       success: ArtifactPage
+    }).middleware(Authorization),
+    HttpApiEndpoint.get("groups", "/api/groups", {
+      query: {
+        repo: Schema.optional(RepoName),
+        cursor: Schema.optional(Schema.String),
+        limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })))
+      },
+      success: GroupPage
     }).middleware(Authorization),
     HttpApiEndpoint.get("repos", "/api/repos", {
       success: Schema.Array(RepoSummary)
@@ -168,6 +201,7 @@ export class Api extends HttpApi.make("sloppa-artifacts")
 
 /** Path of the raw file route, served outside the typed API so headers can follow the file. */
 export const rawPath = (id: string, name: string) => `/f/${id}/${encodeURIComponent(name)}`
+export const thumbPath = (id: string) => `/t/${id}`
 export const viewerPath = (id: string) => `/a/${id}`
 
 /** Ready to paste into a PR: images embed, everything else links. */

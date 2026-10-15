@@ -1,4 +1,13 @@
-import { Api, ArtifactId, Authorization, PAGE_SIZE, StorageError, Unauthorized, Uploader } from "@sloppa/api"
+import {
+  Api,
+  ArtifactId,
+  Authorization,
+  GROUP_PAGE_SIZE,
+  PAGE_SIZE,
+  StorageError,
+  Unauthorized,
+  Uploader
+} from "@sloppa/api"
 import { Effect, FileSystem, Layer, Option, Redacted, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
@@ -7,6 +16,7 @@ import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
 import { ArtifactStorage, uploadOf } from "./Storage.ts"
+import { Thumbnails } from "./Thumbnails.ts"
 import { UploadTickets } from "./Tickets.ts"
 
 const sameSecret = (a: string, b: string) => {
@@ -46,7 +56,9 @@ const ArtifactsHandlers = HttpApiBuilder.group(
         Effect.mapError((cause) => new StorageError({ message: `read upload: ${cause.message}` }))
       )
     return handlers.handleAll({
-      list: ({ query }) => artifacts.list({ ...query, limit: query.limit ?? PAGE_SIZE }),
+      list: ({ query: { noPr, ...query } }) =>
+        artifacts.list({ ...query, noPr: noPr === "true", limit: query.limit ?? PAGE_SIZE }),
+      groups: ({ query }) => artifacts.groups({ ...query, limit: query.limit ?? GROUP_PAGE_SIZE }),
       stats: () => artifacts.stats,
       prs: ({ query }) => artifacts.prs(query.repo),
       repos: () => artifacts.repos,
@@ -75,6 +87,13 @@ const contentDisposition = (type: "inline" | "attachment", name: string) =>
 
 const notFound = HttpServerResponse.text("Not found", { status: 404 })
 
+/** Artifacts never change once uploaded, and their ids are unguessable: anyone may cache them forever. */
+const immutable = {
+  "cache-control": "public, max-age=31536000, immutable",
+  "x-content-type-options": "nosniff",
+  "access-control-allow-origin": "*"
+}
+
 /**
  * Raw files, outside the typed API so each response carries the artifact's own
  * content type. Uploaded HTML/SVG gets an opaque, sandboxed origin.
@@ -102,10 +121,8 @@ const RawFileRoute = Layer.effectDiscard(
               ...(contentRange === undefined ? {} : { "content-range": contentRange }),
               "accept-ranges": "bytes",
               "content-disposition": contentDisposition(download ? "attachment" : "inline", artifact.name),
-              "cache-control": "public, max-age=31536000, immutable",
-              "x-content-type-options": "nosniff",
               "content-security-policy": "sandbox allow-scripts allow-popups allow-forms allow-downloads",
-              "access-control-allow-origin": "*"
+              ...immutable
             }
           })
         ),
@@ -118,6 +135,37 @@ const RawFileRoute = Layer.effectDiscard(
 
     yield* router.add("GET", "/f/:id", serve)
     yield* router.add("GET", "/f/:id/:name", serve)
+  })
+)
+
+/** Previews for the inventory grid; an image that can't be shrunk sends the browser to the original. */
+const ThumbnailRoute = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const router = yield* HttpRouter.HttpRouter
+    const thumbnails = yield* Thumbnails
+    const decodeId = Schema.decodeUnknownOption(ArtifactId)
+
+    yield* router.add(
+      "GET",
+      "/t/:id",
+      Effect.gen(function* () {
+        const id = decodeId((yield* HttpRouter.params)["id"])
+        if (Option.isNone(id)) return notFound
+        return yield* thumbnails.get(id.value).pipe(
+          Effect.map((bytes) =>
+            HttpServerResponse.uint8Array(bytes, { contentType: "image/webp", headers: immutable })
+          ),
+          Effect.catchTags({
+            ArtifactNotFound: () => Effect.succeed(notFound),
+            StorageError: (e) => Effect.succeed(HttpServerResponse.text(e.message, { status: 502 })),
+            ThumbnailError: (e) =>
+              Effect.logWarning(`No thumbnail for ${id.value}`, e.cause).pipe(
+                Effect.as(HttpServerResponse.redirect(`/f/${id.value}`, { status: 302 }))
+              )
+          })
+        )
+      })
+    )
   })
 )
 
@@ -198,6 +246,7 @@ export const Routes = Layer.mergeAll(
     Layer.provide(ArtifactsHandlers.pipe(Layer.provide(AuthorizationLive)))
   ),
   RawFileRoute,
+  ThumbnailRoute,
   TicketUploadRoute,
   McpRoutes,
   McpAuthorization,

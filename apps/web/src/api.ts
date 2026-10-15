@@ -1,5 +1,5 @@
 import { BrowserKeyValueStore } from "@effect/platform-browser"
-import { Api, type ArtifactId, Authorization, PAGE_SIZE } from "@sloppa/api"
+import { Api, type ArtifactId, Authorization, GROUP_PAGE_SIZE, PAGE_SIZE } from "@sloppa/api"
 import { Effect, Layer, Option, Schema, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 import { HttpApiMiddleware } from "effect/http-api"
@@ -49,40 +49,63 @@ export const prsAtom = Atom.family((repo: string) =>
   })
 )
 
+/** The `pr` filter for the artifacts filed under none. */
+export const NO_PR = "none"
+
 export interface ListFilter {
   readonly repo: string
+  /** A PR, `NO_PR`, or "" for all of them. */
   readonly pr: string
+  /** Searched on the server, so it reaches artifacts that aren't loaded yet. */
+  readonly search: string
 }
 
 /**
- * Newest first; write to the atom to pull the next page. Pages (not items) are
- * accumulated so the last one's `nextCursor` says whether there is more.
- * Keyed by a string so equal filters share one atom.
+ * Write to the atom to pull the next page. Pages (not items) are accumulated so the last one's
+ * `nextCursor` says whether there is more.
  */
-const pagesFamily = Atom.family((key: string) => {
-  const { repo, pr } = JSON.parse(key) as ListFilter
-  return ApiClient.runtime
+const paged = <P extends { readonly nextCursor?: string }, E>(
+  fetch: (client: ApiClient["Service"], cursor: string | undefined) => Effect.Effect<P, E>
+) =>
+  ApiClient.runtime
     .pull(
       Stream.paginate(undefined as string | undefined, (cursor) =>
-        Effect.gen(function* () {
-          const client = yield* ApiClient
-          const page = yield* client.artifacts.list({
-            query: {
-              limit: PAGE_SIZE,
-              ...(repo === "" ? {} : { repo }),
-              ...(pr === "" ? {} : { pr }),
-              ...(cursor === undefined ? {} : { cursor })
-            }
-          })
-          return [[page], Option.fromNullishOr(page.nextCursor)] as const
-        })
+        ApiClient.use((client) => fetch(client, cursor)).pipe(
+          Effect.map((page) => [[page], Option.fromNullishOr(page.nextCursor)] as const)
+        )
       )
     )
     .pipe(Atom.withReactivity(ARTIFACTS_KEY), Atom.setIdleTTL(LIST_CACHE))
+
+const cursorQuery = (cursor: string | undefined) => (cursor === undefined ? {} : { cursor })
+
+/** Newest first. Keyed by a string so equal filters share one atom. */
+const pagesFamily = Atom.family((key: string) => {
+  const { repo, pr, search } = JSON.parse(key) as ListFilter
+  return paged((client, cursor) =>
+    client.artifacts.list({
+      query: {
+        limit: PAGE_SIZE,
+        ...(repo === "" ? {} : { repo }),
+        ...(pr === "" ? {} : pr === NO_PR ? { noPr: "true" as const } : { pr }),
+        ...(search === "" ? {} : { q: search }),
+        ...cursorQuery(cursor)
+      }
+    })
+  )
 })
 
 export const artifactPagesAtom = (filter: ListFilter) =>
-  pagesFamily(JSON.stringify({ repo: filter.repo, pr: filter.pr }))
+  pagesFamily(JSON.stringify({ repo: filter.repo, pr: filter.pr, search: filter.search.trim() }))
+
+/** The mosaic: a tile per PR, most recently active first; "" for every repo. */
+export const groupPagesAtom = Atom.family((repo: string) =>
+  paged((client, cursor) =>
+    client.artifacts.groups({
+      query: { limit: GROUP_PAGE_SIZE, ...(repo === "" ? {} : { repo }), ...cursorQuery(cursor) }
+    })
+  )
+)
 
 export const artifactAtom = Atom.family((id: ArtifactId) =>
   ApiClient.query("artifacts", "get", { params: { id }, timeToLive: "5 minutes" })

@@ -4,7 +4,7 @@ import { type ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
 import { DateTime, Effect, Layer, Option, Predicate, Stream } from "effect"
 import { FetchHttpClient, type HttpClient } from "effect/http"
 import type { S3Config } from "./Config.ts"
-import type { ArtifactStorage, PutInput, StoredArtifact } from "./Storage.ts"
+import { type ArtifactStorage, type PutInput, readAll, type StoredArtifact } from "./Storage.ts"
 
 const PREFIX = "artifacts/"
 const keyOf = (id: string) => `${PREFIX}${id}`
@@ -18,16 +18,6 @@ const decodeMeta = (value: string | undefined) => {
   } catch {
     return value
   }
-}
-
-const concat = (chunks: ReadonlyArray<Uint8Array>, size: number) => {
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return bytes
 }
 
 const toStorageError = (cause: { readonly _tag: string; readonly message?: string | undefined }) =>
@@ -75,7 +65,7 @@ export const makeS3Storage = (s3: S3Config) =>
       // Buffered whole on purpose. distilled only streams a body when given its ContentLength, and then drops
       // the header, which RustFS rejects ("missing header: content-length"); handing it a stream without one
       // makes it buffer anyway.
-      const Body = concat(yield* Stream.runCollect(input.body.stream), input.body.size)
+      const Body = yield* readAll(input.body.stream, input.body.size)
       yield* run(
         S3.putObject({
           Bucket,
