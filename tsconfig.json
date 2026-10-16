@@ -11,9 +11,10 @@
     "noUncheckedIndexedAccess": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["bun"],
+    "types": ["node"],
     "plugins": [
       {
         "name": "@effect/language-service",
@@ -21,5 +22,5 @@
       }
     ]
   },
-  "include": ["packages/*/src", "apps/*/src", "apps/web/vite.config.ts"]
+  "include": ["packages/*/src", "apps/*/src", "apps/*/test", "apps/web/vite.config.ts"]
 }

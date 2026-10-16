@@ -14,5 +14,13 @@
   "ignorePatterns": ["**/dist"],
   "rules": {
     "effecttsgo/unstable-api-usage": "off"
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/test/**"],
+      "rules": {
+        "typescript/no-floating-promises": "off"
+      }
+    }
+  ]
 }

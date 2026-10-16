@@ -17,13 +17,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
-          bun-version-file: package.json
+          node-version-file: .node-version
+          cache: pnpm
       # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin.
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run build
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      # The CLI end to end, against the real server and its preview listener.
+      - run: pnpm run test
+      - run: pnpm run build
+
+  # The CLI where agents run it. On Windows that means .cmd shims through cmd.exe, and process
+  # trees stopped with taskkill. Suites that need POSIX or /proc skip themselves.
+  cli:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @sloppa/cli build
+      - if: runner.os == 'Windows'
+        run: apps\cli\dist\sloppa.cmd --version
+        shell: cmd
+      - if: runner.os != 'Windows'
+        run: apps/cli/dist/sloppa.mjs --version
+      - run: pnpm run test
 
   image:
     needs: check

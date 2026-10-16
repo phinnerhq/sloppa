@@ -1,9 +1,10 @@
-import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun"
+import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node"
 import { InvalidCredentials, TooManyAttempts } from "@sloppa/api"
 import { Context, DateTime, Duration, Effect, FileSystem, Layer, Option, Path, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { createHash, randomBytes } from "node:crypto"
 import { AppConfig } from "./Config.ts"
+import { hashPassword, verifyPassword } from "./Password.ts"
 
 export interface Account {
   readonly id: number
@@ -112,10 +113,6 @@ const Sqlite = Layer.unwrap(
     return Migrations.pipe(Layer.provideMerge(SqliteClient.layer({ filename: path.join(dataDir, "accounts.sqlite") })))
   })
 )
-
-const hashPassword = (password: Redacted.Redacted<string>) =>
-  Effect.promise(() => Bun.password.hash(Redacted.value(password)))
-const verifyPassword = (password: string, hash: string) => Effect.promise(() => Bun.password.verify(password, hash))
 
 /**
  * Users, and everything that signs in as one. Unlike the index this isn't derived from storage, so

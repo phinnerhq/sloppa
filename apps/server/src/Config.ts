@@ -1,4 +1,4 @@
-import { Config, Context, Effect, Layer, Redacted } from "effect"
+import { Config, Context, Duration, Effect, Layer, Redacted } from "effect"
 
 export interface S3Config {
   readonly endpoint: string
@@ -19,6 +19,50 @@ const s3Config = Effect.gen(function* () {
     secretAccessKey: yield* Config.Redacted("S3_SECRET_ACCESS_KEY")
   } satisfies S3Config
 })
+
+/** `sloppa preview run`: tickets, the tunnels, and the previews themselves, on a port of their own. */
+export interface PreviewConfig {
+  /** Like https://preview.example.com: previews are its subdomains, and the apex takes the tunnels. */
+  readonly origin: URL
+  /** Signs preview tickets, which the tunnel endpoint checks offline. */
+  readonly secret: Redacted.Redacted<string>
+  /** Plain HTTP for the reverse proxy, separate from the app's own port. */
+  readonly host: string
+  readonly port: number
+  /** Failed guesses (unknown hosts, wrong passwords, bad tickets) a client gets, refilled one per `missEvery`. */
+  readonly missBurst: number
+  readonly missEvery: Duration.Duration
+}
+
+/** Throws, as a defect: the server can't start with a broken one. */
+const parseOrigin = (raw: string) => {
+  const url = URL.parse(raw)
+  const invalid = (why: string) => new Error(`PREVIEW_ORIGIN: expected ${why}, got ${raw}`)
+  if (url === null || (url.protocol !== "http:" && url.protocol !== "https:")) throw invalid("http:// or https://")
+  if (/^[\d.]+$|^\[/.test(url.hostname)) throw invalid("a DNS name, whose subdomains are the previews")
+  if (url.pathname.replace(/\//g, "") !== "" || url.search !== "" || url.username !== "") {
+    throw invalid("only a scheme, host and port")
+  }
+  return new URL(url.origin)
+}
+
+const previewConfig = (host: string) =>
+  Effect.gen(function* () {
+    const origin = yield* Config.String("PREVIEW_ORIGIN").pipe(Config.withDefault(""))
+    const secret = yield* Config.Redacted("PREVIEW_SECRET").pipe(Config.withDefault(undefined))
+    if (origin === "" || secret === undefined) return undefined
+    if (Redacted.value(secret).length < 32) {
+      return yield* Effect.die(new Error("PREVIEW_SECRET needs at least 32 characters (openssl rand -base64 32)"))
+    }
+    return {
+      origin: yield* Effect.sync(() => parseOrigin(origin)),
+      secret,
+      host: yield* Config.String("PREVIEW_HOST").pipe(Config.withDefault(host)),
+      port: yield* Config.Port("PREVIEW_PORT").pipe(Config.withDefault(4200)),
+      missBurst: yield* Config.Int("PREVIEW_MISS_BURST").pipe(Config.withDefault(20)),
+      missEvery: yield* Config.Duration("PREVIEW_MISS_EVERY").pipe(Config.withDefault(Duration.seconds(3)))
+    } satisfies PreviewConfig
+  })
 
 /** The first user, created (or given this password again) on boot. */
 export interface BootstrapUser {
@@ -54,6 +98,8 @@ export class AppConfig extends Context.Service<
     readonly dataDir: string
     /** Set when `S3_ENDPOINT` is: artifacts then live in the bucket instead of `dataDir`. */
     readonly s3: S3Config | undefined
+    /** Set when `PREVIEW_ORIGIN` and `PREVIEW_SECRET` are. */
+    readonly preview: PreviewConfig | undefined
   }
 >()("sloppa/server/AppConfig") {
   static readonly layer = Layer.effect(
@@ -71,7 +117,8 @@ export class AppConfig extends Context.Service<
         trustProxy: yield* Config.Boolean("TRUST_PROXY").pipe(Config.withDefault(false)),
         staticDir: yield* Config.String("STATIC_DIR").pipe(Config.withDefault(undefined)),
         dataDir: yield* Config.String("DATA_DIR").pipe(Config.withDefault(".data")),
-        s3: yield* s3Config
+        s3: yield* s3Config,
+        preview: yield* previewConfig(host)
       })
     })
   )

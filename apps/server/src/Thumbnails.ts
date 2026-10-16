@@ -1,10 +1,11 @@
 import { type ArtifactId, type ArtifactNotFound, StorageError } from "@sloppa/api"
 import { Context, Data, Effect, FileSystem, Layer, Path, Semaphore } from "effect"
+import sharp from "sharp"
 import { AppConfig } from "./Config.ts"
 import { ArtifactStorage, readAll } from "./Storage.ts"
 
-/** What `Bun.Image` decodes on every platform. GIFs keep their first frame. */
-const RASTER = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/bmp"])
+/** What sharp's prebuilt libvips decodes. GIFs keep their first frame. */
+const RASTER = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/tiff"])
 
 export const hasThumbnail = (contentType: string) => RASTER.has(contentType.split(";")[0]!.trim().toLowerCase())
 
@@ -51,10 +52,11 @@ export class Thumbnails extends Context.Service<
           )
           const thumb = yield* Effect.tryPromise({
             try: () =>
-              new Bun.Image(original, { maxPixels: MAX_PIXELS })
+              sharp(original, { limitInputPixels: MAX_PIXELS })
+                .rotate()
                 .resize(SIZE, SIZE, { fit: "inside", withoutEnlargement: true })
                 .webp({ quality: 80 })
-                .bytes(),
+                .toBuffer(),
             catch: (cause) => new ThumbnailError({ cause })
           })
           // Written aside, then renamed: a request racing this one never reads half a file.

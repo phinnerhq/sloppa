@@ -282,6 +282,85 @@ export class AgentsGroup extends HttpApiGroup.make("agents")
   )
   .annotateMerge(OpenApi.annotations({ title: "Agents" })) {}
 
+/** A preview's subdomain when it isn't the random id: one lowercase DNS label, like `checkout-demo`. */
+export const PreviewName = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/, {
+    message: "Expected lowercase letters, digits and dashes, at most 40, not starting or ending with a dash"
+  })
+)
+
+export const PREVIEW_TTL_DEFAULT_SECONDS = 8 * 60 * 60
+export const PREVIEW_TTL_MAX_SECONDS = 24 * 60 * 60
+
+/** A dev server shared by `sloppa preview run`, live for as long as that command runs. */
+export class Preview extends Schema.Class<Preview, { readonly brand: unique symbol }>("Preview")({
+  /** 8 random base36 characters; the subdomain too, unless the preview has a name. */
+  id: Schema.String,
+  url: Schema.String,
+  name: Schema.optionalKey(Schema.String),
+  /** Behind a password, checked by the preview proxy. */
+  protected: Schema.Boolean,
+  /** The dev server's port, on the machine running the command. */
+  port: Schema.Int,
+  command: Schema.optionalKey(Schema.String),
+  cwd: Schema.optionalKey(Schema.String),
+  hostname: Schema.optionalKey(Schema.String),
+  connectedAt: Schema.DateTimeUtcFromString,
+  /** When the preview stops on its own, killing its dev server. */
+  expiresAt: Schema.DateTimeUtcFromString,
+  /** Browser connections open right now. */
+  connections: Schema.Int,
+  requests: Schema.Int
+}) {}
+
+/** What `sloppa preview run` connects with. The ticket is a credential: keep it out of logs. */
+export class PreviewTicket extends Schema.Class<PreviewTicket, { readonly brand: unique symbol }>("PreviewTicket")({
+  ticket: Schema.String,
+  id: Schema.String,
+  url: Schema.String,
+  /** The tunnel's WebSocket endpoint. */
+  connectUrl: Schema.String,
+  expiresAt: Schema.DateTimeUtcFromString
+}) {}
+
+export class PreviewNotFound extends Schema.TaggedError<PreviewNotFound, { readonly brand: unique symbol }>()(
+  "PreviewNotFound",
+  { id: Schema.String },
+  { httpApiStatus: 404 }
+) {}
+
+/** Previews aren't configured on this server, or the preview proxy can't be reached. */
+export class PreviewsUnavailable extends Schema.TaggedError<PreviewsUnavailable, { readonly brand: unique symbol }>()(
+  "PreviewsUnavailable",
+  { message: Schema.String },
+  { httpApiStatus: 503 }
+) {}
+
+export class PreviewsGroup extends HttpApiGroup.make("previews")
+  .add(
+    HttpApiEndpoint.get("list", "/api/previews", {
+      success: Schema.Array(Preview),
+      error: PreviewsUnavailable
+    }).middleware(Authorization),
+    HttpApiEndpoint.post("start", "/api/previews", {
+      payload: Schema.Struct({
+        name: Schema.optionalKey(PreviewName),
+        /** Asked for by the proxy as Basic auth, any user name. Only a keyed hash leaves this server. */
+        password: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(200))),
+        /** Seconds until the preview stops by itself. */
+        ttl: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 60, maximum: PREVIEW_TTL_MAX_SECONDS })))
+      }),
+      success: PreviewTicket,
+      error: PreviewsUnavailable
+    }).middleware(Authorization),
+    HttpApiEndpoint.delete("stop", "/api/previews/:id", {
+      params: { id: Schema.String },
+      success: HttpApiSchema.NoContent,
+      error: [PreviewNotFound, PreviewsUnavailable]
+    }).middleware(Authorization)
+  )
+  .annotateMerge(OpenApi.annotations({ title: "Previews" })) {}
+
 /** `owner/repo #42`, the label for a GitHub PR, from its URL; anything else is kept as it is. */
 export const collectionOfPr = (pr: string): string => {
   const match = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(pr.trim())
@@ -299,6 +378,7 @@ export class Api extends HttpApi.make("sloppa-artifacts")
   .add(ArtifactsGroup)
   .add(SessionGroup)
   .add(AgentsGroup)
+  .add(PreviewsGroup)
   .annotateMerge(OpenApi.annotations({ title: "Sloppa Artifacts" })) {}
 
 /** Where agents redeem a setup link, outside the typed API since they read it as plain text. */

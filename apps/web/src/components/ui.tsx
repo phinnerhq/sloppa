@@ -66,6 +66,16 @@ export const Floppa = ({
   )
 }
 
+/** Re-renders every `ms`, for countdowns and "used 2 minutes ago". */
+export const useNow = (ms: number) => {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), ms)
+    return () => clearInterval(timer)
+  }, [ms])
+  return now
+}
+
 const toastAtom = Atom.make<{ readonly id: number; readonly text: string } | null>(null).pipe(Atom.keepAlive)
 
 export const useToast = () => {

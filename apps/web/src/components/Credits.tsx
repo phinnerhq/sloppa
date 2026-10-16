@@ -52,8 +52,11 @@ const LOOKS: ReadonlyArray<Entry> = [
 const STACK: ReadonlyArray<Entry> = [
   ["Effect", "https://effect.website", "MIT", "server, MCP, API and client state"],
   ["React", "https://react.dev", "MIT", "the app you're looking at"],
-  ["Bun", "https://bun.sh", "MIT", "runtime, bundler and SQLite"],
+  ["Node.js", "https://nodejs.org", "MIT", "runtime and SQLite"],
+  ["sharp", "https://sharp.pixelplumbing.com", "Apache 2.0", "thumbnails"],
+  ["ws", "https://github.com/websockets/ws", "MIT", "preview tunnels"],
   ["Vite", "https://vite.dev", "MIT", "web build"],
+  ["Rolldown", "https://rolldown.rs", "MIT", "the server and CLI bundles"],
   ["Tailwind CSS", "https://tailwindcss.com", "MIT", "styling"],
   ["distilled", "https://github.com/alchemy-run/distilled", "Apache 2.0", "the S3 client"]
 ]

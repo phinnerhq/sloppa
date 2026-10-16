@@ -1,0 +1,63 @@
+# sloppa as one Dokploy compose app behind Dokploy's Traefik. See docs/deploy.md: the previews
+# router needs a DNS-01 resolver added to Traefik first.
+#
+# Set in Dokploy's environment for this app:
+#   PREVIEW_SECRET      openssl rand -base64 32; signs the tickets `sloppa preview run` connects with
+#   BOOTSTRAP_USERNAME, BOOTSTRAP_PASSWORD, and S3_* if artifacts live in a bucket
+#
+# Nothing here publishes a port on the host: Traefik reaches both of the app's ports over
+# dokploy-network.
+
+services:
+  sloppa:
+    build: .
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: https://sloppa.example.com
+      TRUST_PROXY: "true"
+      PREVIEW_ORIGIN: https://preview.example.net
+      PREVIEW_SECRET: ${PREVIEW_SECRET:?set PREVIEW_SECRET}
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+    volumes:
+      - sloppa-data:/data
+    networks: [dokploy-network]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      # The app, on 4100.
+      - traefik.http.routers.sloppa.rule=Host(`sloppa.example.com`)
+      - traefik.http.routers.sloppa.entrypoints=websecure
+      - traefik.http.routers.sloppa.tls.certresolver=letsencrypt
+      - traefik.http.routers.sloppa.service=sloppa
+      - traefik.http.routers.sloppa-http.rule=Host(`sloppa.example.com`)
+      - traefik.http.routers.sloppa-http.entrypoints=web
+      - traefik.http.routers.sloppa-http.middlewares=redirect-to-https@file
+      - traefik.http.routers.sloppa-http.service=sloppa
+      - traefik.http.services.sloppa.loadbalancer.server.port=4100
+      # Previews, on 4200: the apex takes the CLI's tunnels, and every <label>. under it is a preview.
+      - traefik.http.routers.previews.rule=Host(`preview.example.net`) || HostRegexp(`^[a-z0-9-]+\.preview\.example\.net$`)
+      - traefik.http.routers.previews.entrypoints=websecure
+      # Overrides websecure's HTTP-01 default: one wildcard certificate over DNS-01, so CT logs show
+      # *.preview.example.net and never a preview's own name.
+      - traefik.http.routers.previews.tls.certresolver=letsencrypt-dns
+      - traefik.http.routers.previews.tls.domains[0].main=preview.example.net
+      - traefik.http.routers.previews.tls.domains[0].sans=*.preview.example.net
+      - traefik.http.routers.previews.service=previews
+      - traefik.http.routers.previews-http.rule=Host(`preview.example.net`) || HostRegexp(`^[a-z0-9-]+\.preview\.example\.net$`)
+      - traefik.http.routers.previews-http.entrypoints=web
+      - traefik.http.routers.previews-http.middlewares=redirect-to-https@file
+      - traefik.http.routers.previews-http.service=previews
+      - traefik.http.services.previews.loadbalancer.server.port=4200
+
+volumes:
+  sloppa-data:
+
+networks:
+  dokploy-network:
+    external: true

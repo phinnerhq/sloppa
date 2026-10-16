@@ -15,20 +15,10 @@ import {
   revokeSetupAtom
 } from "../api.ts"
 import { formatAgo } from "../format.ts"
-import { Button, CopyButton, overlayScrollbar, useToast } from "./ui.tsx"
+import { Button, CopyButton, overlayScrollbar, useNow, useToast } from "./ui.tsx"
 
 /** The link made last, kept while the tab lives so closing the menu doesn't lose it. */
 const setupLinkAtom = Atom.make<SetupLink | null>(null).pipe(Atom.keepAlive)
-
-/** Re-renders every `ms`, for countdowns and "used 2 minutes ago". */
-const useNow = (ms: number) => {
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), ms)
-    return () => clearInterval(timer)
-  }, [ms])
-  return now
-}
 
 /** `text` with `secret` blurred until the secret itself is hovered, so the panel is safe to screen-share. */
 const Redacted = ({ text, secret }: { text: string; secret: string }) =>

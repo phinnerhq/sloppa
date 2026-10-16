@@ -1,4 +1,4 @@
-import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun"
+import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node"
 import { ArtifactId } from "@sloppa/api"
 import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Result, Schema, Stream } from "effect"
 import { Base64Url } from "effect/encoding"

@@ -10,6 +10,7 @@ import { ArtifactView } from "./components/ArtifactView.tsx"
 import { ConnectAgent } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
 import { useSignedIn } from "./components/Login.tsx"
+import { Previews } from "./components/Previews.tsx"
 import { Button, Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
 import "./index.css"
 import { type Direction, type Navigation, onLinkClick, type Route, useBeforeNavigate, useRoute } from "./router.ts"
@@ -19,6 +20,7 @@ const Session = () => {
   if (!useSignedIn()) return null
   return (
     <>
+      <Previews />
       <ConnectAgent />
       {/* Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line. */}
       <Button

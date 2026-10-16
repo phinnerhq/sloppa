@@ -23,6 +23,7 @@ import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
+import { Previews } from "./Previews.ts"
 import { SetupRoute, setupPrompt } from "./Setup.ts"
 import { ArtifactStorage, uploadOf } from "./Storage.ts"
 import { Thumbnails } from "./Thumbnails.ts"
@@ -193,6 +194,19 @@ const ArtifactsHandlers = HttpApiBuilder.group(
   })
 )
 
+const PreviewsHandlers = HttpApiBuilder.group(
+  Api,
+  "previews",
+  Effect.fn(function* (handlers) {
+    const previews = yield* Previews
+    return handlers.handleAll({
+      list: () => Effect.flatMap(CurrentUser, previews.list),
+      start: ({ payload }) => Effect.flatMap(CurrentUser, (user) => previews.start(user, payload)),
+      stop: ({ params }) => Effect.flatMap(CurrentUser, (user) => previews.stop(user, params.id))
+    })
+  })
+)
+
 const contentDisposition = (type: "inline" | "attachment", name: string) =>
   `${type}; filename="${name.replace(/[^\x20-\x7e]|"/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`
 
@@ -352,7 +366,7 @@ const StaticFiles = Layer.unwrap(
 
 export const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/api/openapi.json" }).pipe(
-    Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers)),
+    Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers, PreviewsHandlers)),
     Layer.provide(Layer.mergeAll(AuthorizationLive, SessionAuthorizationLive))
   ),
   RawFileRoute,
@@ -361,4 +375,7 @@ export const Routes = Layer.mergeAll(
   McpRoutes,
   SetupRoute.pipe(Layer.provide(logAs("/setup/<code>"))),
   StaticFiles
-).pipe(Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer)), Layer.provideMerge(Accounts.layer))
+).pipe(
+  Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer, Previews.layer)),
+  Layer.provideMerge(Accounts.layer)
+)
