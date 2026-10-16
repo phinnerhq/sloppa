@@ -1,37 +1,27 @@
-import { RegistryProvider, useAtomSet } from "@effect/atom-react"
+import { RegistryProvider } from "@effect/atom-react"
 import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import { invalidateSession, logoutAtom } from "./api.ts"
+import { Account } from "./components/Account.tsx"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
 import { ConnectAgent } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
 import { useSignedIn } from "./components/Login.tsx"
 import { Previews } from "./components/Previews.tsx"
-import { Button, Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
+import { Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
 import "./index.css"
 import { type Direction, type Navigation, onLinkClick, type Route, useBeforeNavigate, useRoute } from "./router.ts"
-import { CopyrightIcon, SignOutIcon } from "./components/Icon"
+import { CopyrightIcon } from "./components/Icon"
 
 const Session = () => {
-  const logout = useAtomSet(logoutAtom)
   if (!useSignedIn()) return null
   return (
     <>
       <Previews />
       <ConnectAgent />
-      {/* Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line. */}
-      <Button
-        onClick={() => logout({ reactivityKeys: invalidateSession })}
-        aria-label="Sign out"
-        title="Sign out"
-        size="icon"
-        className="[&>.pressable-face]:size-12.5"
-      >
-        <SignOutIcon size={20} />
-      </Button>
+      <Account />
     </>
   )
 }

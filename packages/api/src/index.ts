@@ -242,6 +242,8 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
   )
   .annotateMerge(OpenApi.annotations({ title: "Artifacts" })) {}
 
+export const PASSWORD_MIN = 8
+
 export class SessionGroup extends HttpApiGroup.make("session")
   .add(
     HttpApiEndpoint.post("login", "/api/session", {
@@ -254,7 +256,16 @@ export class SessionGroup extends HttpApiGroup.make("session")
       error: [InvalidCredentials, TooManyAttempts]
     }),
     HttpApiEndpoint.get("current", "/api/session", { success: User }).middleware(Authorization),
-    HttpApiEndpoint.delete("logout", "/api/session", { success: HttpApiSchema.NoContent }).middleware(Authorization)
+    HttpApiEndpoint.delete("logout", "/api/session", { success: HttpApiSchema.NoContent }).middleware(Authorization),
+    /** Signs out every other browser. */
+    HttpApiEndpoint.put("changePassword", "/api/session/password", {
+      payload: Schema.Struct({
+        current: Schema.String.check(Schema.isMaxLength(1024)),
+        next: Schema.String.check(Schema.isMinLength(PASSWORD_MIN), Schema.isMaxLength(1024))
+      }),
+      success: HttpApiSchema.NoContent,
+      error: [InvalidCredentials, TooManyAttempts]
+    }).middleware(SessionAuthorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Session" })) {}
 

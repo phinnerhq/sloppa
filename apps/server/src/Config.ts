@@ -65,7 +65,7 @@ const previewConfig = (publicUrl: string) =>
     } satisfies PreviewConfig
   })
 
-/** The first user, created (or given this password again) on boot. */
+/** The first user, created on boot, and given this password again whenever it changes. */
 interface BootstrapUser {
   readonly username: string
   readonly password: Redacted.Redacted<string>

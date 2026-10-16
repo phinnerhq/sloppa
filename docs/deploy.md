@@ -6,7 +6,8 @@ Build the [Dockerfile](../Dockerfile) and keep `/data` on a volume. The app and 
 - `PREVIEW_ORIGIN=https://preview.example.net`
 - `PREVIEW_SECRET`, from `openssl rand -base64 32`
 - `TRUST_PROXY=true`, so rate limits use the proxy's client address
-- `BOOTSTRAP_USERNAME` and `BOOTSTRAP_PASSWORD` for the first account, and `S3_*` if artifacts live in a bucket
+- `BOOTSTRAP_USERNAME` and `BOOTSTRAP_PASSWORD` for the first account. Remove them after the first start and change the password from the account menu; setting a new one later resets it.
+- `S3_*` if artifacts live in a bucket
 
 See [.env.example](../.env.example) for the rest. Password hashes from the Bun build still work.
 

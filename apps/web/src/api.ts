@@ -18,6 +18,7 @@ export const sessionAtom = ApiClient.query("session", "current", { reactivityKey
 
 export const loginAtom = ApiClient.mutation("session", "login")
 export const logoutAtom = ApiClient.mutation("session", "logout")
+export const changePasswordAtom = ApiClient.mutation("session", "changePassword")
 /** Pass as `reactivityKeys` when signing in or out. */
 export const invalidateSession = ["session", "artifacts", "agents", "previews"]
 

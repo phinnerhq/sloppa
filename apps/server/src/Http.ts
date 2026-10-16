@@ -70,7 +70,7 @@ const SessionAuthorizationLive = Layer.effect(
     const holder = holderOf(yield* Accounts)
     return SessionAuthorization.of({
       session: (httpEffect, { credential }) =>
-        Effect.flatMap(holder("session", credential, "Sign in to manage agents"), (user) =>
+        Effect.flatMap(holder("session", credential, "Sign in from a browser for this"), (user) =>
           Effect.provideService(httpEffect, CurrentUser, user)
         )
     })
@@ -100,6 +100,10 @@ const SessionHandlers = HttpApiBuilder.group(
           )
         ),
       current: () => Effect.map(CurrentUser, (user) => new User({ username: user.username })),
+      changePassword: ({ payload, request }) =>
+        Effect.flatMap(CurrentUser, (user) =>
+          accounts.changePassword(user, request.cookies[SESSION_COOKIE] ?? "", payload.current, payload.next)
+        ),
       logout: () =>
         Effect.gen(function* () {
           const session = (yield* HttpServerRequest.HttpServerRequest).cookies[SESSION_COOKIE]
