@@ -15,10 +15,11 @@ import { Context, Effect, Layer, Option, Semaphore } from "effect"
 import { AppConfig } from "./Config.ts"
 import { resolveContentType } from "./ContentType.ts"
 import { ArtifactIndex } from "./Index.ts"
-import { ArtifactStorage, type StoredArtifact, type Upload } from "./Storage.ts"
+import { ArtifactStorage } from "./Storage.ts"
+import type { StoredArtifact, Upload } from "./StorageShared.ts"
 import { hasThumbnail, Thumbnails } from "./Thumbnails.ts"
 
-export interface UploadInput {
+interface UploadInput {
   readonly id?: ArtifactId | undefined
   readonly name: string
   /** What the uploader claimed; the file extension wins when this is missing or generic. */

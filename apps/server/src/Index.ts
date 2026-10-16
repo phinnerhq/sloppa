@@ -4,7 +4,8 @@ import { Context, DateTime, Effect, FileSystem, Layer, Option, Path, Result, Sch
 import { Base64Url } from "effect/encoding"
 import { SqlClient, SqlSchema } from "effect/sql"
 import { AppConfig } from "./Config.ts"
-import { ArtifactStorage, type StoredArtifact } from "./Storage.ts"
+import { ArtifactStorage } from "./Storage.ts"
+import type { StoredArtifact } from "./StorageShared.ts"
 
 const Row = Schema.Struct({
   id: ArtifactId,
@@ -48,7 +49,7 @@ const Cursor = Schema.Struct({ ms: Schema.Finite, id: Schema.String })
 /** Groups, most recently active first. */
 const GroupCursor = Schema.Struct({ ms: Schema.Finite, collection: Schema.String })
 
-export interface ListQuery {
+interface ListQuery {
   readonly collection: string | undefined
   /** A substring of the name, id, collection or content type. */
   readonly search: string | undefined
@@ -56,27 +57,27 @@ export interface ListQuery {
   readonly limit: number
 }
 
-export interface GroupQuery {
+interface GroupQuery {
   readonly cursor: string | undefined
   readonly limit: number
   readonly previewSize: number
 }
 
-export interface IndexGroup {
+interface IndexGroup {
   readonly collection: string
   readonly count: number
   readonly lastUploadAt: DateTime.Utc
   readonly preview: ReadonlyArray<StoredArtifact>
 }
 
-export interface IndexStats {
+interface IndexStats {
   readonly total: number
   readonly totalBytes: number
   readonly last24h: number
   readonly lastUploadAt: DateTime.Utc | undefined
 }
 
-export interface CollectionStats {
+interface CollectionStats {
   readonly collection: string
   readonly count: number
   readonly lastUploadAt: DateTime.Utc

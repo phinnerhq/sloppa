@@ -18,7 +18,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
-import { uploadOf } from "./Storage.ts"
+import { uploadOf } from "./StorageShared.ts"
 import { Previews } from "./Previews.ts"
 import { UploadTickets } from "./Tickets.ts"
 

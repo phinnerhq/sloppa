@@ -25,8 +25,13 @@ jobs:
       # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin.
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
-      # The CLI end to end, against the real server and its preview listener.
+      # The CLI end to end, against the real server and its preview listener. Coverage from every
+      # process, test workers and spawned servers alike, for fallow's CRAP scores.
       - run: pnpm run test
+        env:
+          # Absolute: each process resolves it against its own working directory.
+          NODE_V8_COVERAGE: ${{ github.workspace }}/coverage/v8
+      - run: pnpm exec fallow health -c .fallowrc.ci.json
       - run: pnpm run build
 
   # The CLI where agents run it. On Windows that means .cmd shims through cmd.exe, and process

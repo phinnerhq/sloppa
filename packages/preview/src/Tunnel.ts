@@ -37,10 +37,12 @@ export class TunnelStream extends Duplex {
   /** Called on every frame each way; the server's pooled connections time out idle ones with it. */
   protected activity() {}
 
+  // fallow-ignore-next-line unused-class-member -- Duplex hooks, called by Node's stream machinery
   override _read() {
     this.#ws.resume()
   }
 
+  // fallow-ignore-next-line unused-class-member -- Duplex hooks, called by Node's stream machinery
   override _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void) {
     const ws = this.#ws
     this.activity()
@@ -51,6 +53,7 @@ export class TunnelStream extends Duplex {
     }
   }
 
+  // fallow-ignore-next-line unused-class-member -- Duplex hooks, called by Node's stream machinery
   override _final(callback: (error?: Error | null) => void) {
     this.#ws.send("eof", callback)
   }

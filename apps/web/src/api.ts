@@ -3,7 +3,7 @@ import { Effect, Option, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http"
 import { Atom, AtomHttpApi } from "effect/reactivity"
 
-export class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient", {
+class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient", {
   api: Api,
   // Signed in through an HttpOnly cookie, which same-origin fetches send by themselves.
   httpClient: FetchHttpClient.layer,

@@ -2,7 +2,8 @@ import { type ArtifactId, type ArtifactNotFound, StorageError } from "@sloppa/ap
 import { Context, Data, Effect, FileSystem, Layer, Path, Semaphore } from "effect"
 import sharp from "sharp"
 import { AppConfig } from "./Config.ts"
-import { ArtifactStorage, readAll } from "./Storage.ts"
+import { ArtifactStorage } from "./Storage.ts"
+import { readAll } from "./StorageShared.ts"
 
 /** What sharp's prebuilt libvips decodes. GIFs keep their first frame. */
 const RASTER = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif", "image/tiff"])
@@ -15,7 +16,7 @@ const SIZE = 480
 const MAX_PIXELS = 50_000_000
 
 /** The image couldn't be decoded or encoded. */
-export class ThumbnailError extends Data.TaggedError("ThumbnailError")<{ readonly cause: unknown }> {}
+class ThumbnailError extends Data.TaggedError("ThumbnailError")<{ readonly cause: unknown }> {}
 
 /**
  * Small WebP previews for the inventory grid, so a page of screenshots doesn't download every original.

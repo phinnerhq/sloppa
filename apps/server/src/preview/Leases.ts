@@ -1,5 +1,5 @@
 import { Close, type Hello, label, type TicketBody, TunnelStream } from "@sloppa/preview"
-import { Context, Deferred, Duration, Effect, Exit, Layer, Option, Schedule } from "effect"
+import { Clock, Context, Deferred, Duration, Effect, Exit, Layer, Option } from "effect"
 import { randomBytes } from "node:crypto"
 import { Agent } from "node:http"
 import type { Duplex } from "node:stream"
@@ -107,7 +107,8 @@ export class Lease {
   /** Every lease's pending dials, by connection id: how a data socket finds its lease. */
   readonly #pending: Map<string, Lease>
   readonly #open = new Set<Duplex>()
-  #seen = Date.now()
+  /** Whether the CLI said anything since the last ping went out. */
+  #heard = true
   #disconnected = false
 
   constructor(options: {
@@ -137,8 +138,11 @@ export class Lease {
     return this.#open.size
   }
 
-  get silentFor() {
-    return Date.now() - this.#seen
+  /** Whether the CLI said anything since the last call, which starts the next interval. */
+  heardSinceLastPing() {
+    const heard = this.#heard
+    this.#heard = false
+    return heard
   }
 
   end(ending: Ending) {
@@ -146,8 +150,9 @@ export class Lease {
   }
 
   /** Any message from the CLI says it's still there. */
+  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
   seen() {
-    this.#seen = Date.now()
+    this.#heard = true
   }
 
   send(message: object) {
@@ -183,6 +188,7 @@ export class Lease {
   }
 
   /** The CLI opened the data socket for `conn`; false when nobody waits for it any more. */
+  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
   accept(conn: string, ws: WebSocket) {
     const dial = this.#forget(conn)
     if (dial === undefined) return false
@@ -192,6 +198,7 @@ export class Lease {
     return true
   }
 
+  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
   refuse(conn: string, reason: string) {
     this.#forget(conn)?.reject(new RefusedError(`nothing accepts connections on port ${this.hello.port}: ${reason}`))
   }
@@ -220,12 +227,21 @@ const closed = (ws: WebSocket) =>
     return Effect.sync(() => ws.off("close", onClose))
   })
 
+const PING_EVERY = Duration.seconds(20)
+/** Pings in a row without a word back before the CLI counts as gone: a minute of silence. */
+const MISSED_PINGS = 3
+
 /** A ping every 20 seconds; a CLI silent for a minute is gone. */
 const keepalive = (lease: Lease) =>
-  Effect.sync(() => lease.send({ type: "ping" })).pipe(
-    Effect.repeat({ schedule: Schedule.spaced("20 seconds"), until: () => lease.silentFor > 60_000 }),
-    Effect.as<Ending>({ code: 1008, reason: "no pong" })
-  )
+  Effect.gen(function* () {
+    let missed = 0
+    while (true) {
+      missed = lease.heardSinceLastPing() ? 0 : missed + 1
+      if (missed >= MISSED_PINGS) return { code: 1008, reason: "no pong" } satisfies Ending
+      lease.send({ type: "ping" })
+      yield* Effect.sleep(PING_EVERY)
+    }
+  })
 
 /**
  * The live leases, by label. Only in memory: a restart drops every route, and the CLIs reconnect
@@ -291,7 +307,8 @@ export class Leases extends Context.Service<
             url: lease.url,
             expiresAt: new Date(lease.ticket.exp).toISOString()
           })
-          const expiry = Effect.sleep(Duration.millis(lease.ticket.exp - Date.now())).pipe(
+          const expiry = Clock.currentTimeMillis.pipe(
+            Effect.flatMap((now) => Effect.sleep(Duration.millis(Math.max(0, lease.ticket.exp - now)))),
             Effect.as<Ending>({ code: Close.Expired, reason: "the preview's time is up" })
           )
           yield* Effect.raceAll([Deferred.await(lease.ending), closed(lease.control), expiry, keepalive(lease)]).pipe(

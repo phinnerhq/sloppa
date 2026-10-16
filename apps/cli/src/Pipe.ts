@@ -4,7 +4,7 @@ import { connect, type Socket } from "node:net"
 import { WebSocket } from "ws"
 
 /** Nothing accepted a connection on the dev server's port. */
-export class DevServerUnreachable extends Data.TaggedError("DevServerUnreachable")<{ readonly cause: unknown }> {}
+class DevServerUnreachable extends Data.TaggedError("DevServerUnreachable")<{ readonly cause: unknown }> {}
 
 /**
  * A connection to the dev server: 127.0.0.1 first, then ::1 for servers that bound `localhost` on

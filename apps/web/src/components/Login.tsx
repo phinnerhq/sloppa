@@ -14,6 +14,20 @@ type Status = "idle" | "busy" | "rejected" | "failed" | { readonly retryAfter: n
 
 const waitLabel = (seconds: number) => (seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`)
 
+/** What a failed sign-in comes to: too many tries, a wrong password, or no answer at all. */
+const failureOf = (error: { readonly _tag: string; readonly retryAfter?: number } | undefined): Status => {
+  if (error?._tag === "TooManyAttempts" && error.retryAfter !== undefined) return { retryAfter: error.retryAfter }
+  return error?._tag === "InvalidCredentials" ? "rejected" : "failed"
+}
+
+const HEADLINES = { rejected: "wrong username or password", failed: "couldn't reach the server" } as const
+
+const headline = (status: Status, expired: boolean) => {
+  if (typeof status === "object") return "too many tries"
+  if (status === "rejected" || status === "failed") return HEADLINES[status]
+  return expired ? "signed out" : "sign in"
+}
+
 /** `expired`: a session that was signed in until a moment ago. */
 export const Login = ({ expired = false }: { expired?: boolean }) => {
   const login = useAtomSet(loginAtom, { mode: "promiseExit" })
@@ -28,14 +42,7 @@ export const Login = ({ expired = false }: { expired?: boolean }) => {
         setStatus("busy")
         void login({ payload: { username, password }, reactivityKeys: invalidateSession }).then((exit) => {
           if (Exit.isSuccess(exit)) return
-          const error = Option.getOrUndefined(Exit.findErrorOption(exit))
-          setStatus(
-            error?._tag === "TooManyAttempts"
-              ? { retryAfter: error.retryAfter }
-              : error?._tag === "InvalidCredentials"
-                ? "rejected"
-                : "failed"
-          )
+          setStatus(failureOf(Option.getOrUndefined(Exit.findErrorOption(exit))))
           setPassword("")
         })
       }}
@@ -44,17 +51,7 @@ export const Login = ({ expired = false }: { expired?: boolean }) => {
       {/* One portrait throughout: swapping moods on a wrong password flashed while the other loaded. */}
       <Floppa mood="hiss" className="h-32 w-auto" />
       <div className="space-y-1">
-        <p className="font-game text-2xl">
-          {typeof status === "object"
-            ? "too many tries"
-            : status === "rejected"
-              ? "wrong username or password"
-              : status === "failed"
-                ? "couldn't reach the server"
-                : expired
-                  ? "signed out"
-                  : "sign in"}
-        </p>
+        <p className="font-game text-2xl">{headline(status, expired)}</p>
         <p className="text-sm font-semibold text-ink/70">
           {typeof status === "object"
             ? `wait ${waitLabel(status.retryAfter)} before trying again.`

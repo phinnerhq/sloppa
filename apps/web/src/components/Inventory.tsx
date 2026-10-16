@@ -58,7 +58,7 @@ const VideoThumbnail = ({ artifact }: { artifact: Artifact }) => {
   )
 }
 
-export const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
+const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
   switch (kindOf(artifact)) {
     case "image":
       return (

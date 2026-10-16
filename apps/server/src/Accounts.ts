@@ -11,7 +11,7 @@ export interface Account {
   readonly username: string
 }
 
-export interface AgentCredential {
+interface AgentCredential {
   readonly id: string
   readonly name: string
   readonly createdAt: DateTime.Utc

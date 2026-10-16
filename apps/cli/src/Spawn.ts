@@ -46,7 +46,7 @@ const pathExtensions = (env: NodeJS.ProcessEnv) => {
 }
 
 /** Where cmd.exe would find `command`: as given if it has a known extension, else with each of PATHEXT's. */
-export const resolveWindowsExecutable = (
+const resolveWindowsExecutable = (
   command: string,
   env: NodeJS.ProcessEnv,
   exists: (path: string) => boolean = isFile

@@ -18,8 +18,8 @@ export const credentialsPath = Effect.gen(function* () {
   return path.join(base, "sloppa", "credentials.json")
 })
 
-export const Credentials = Schema.Struct({ url: Schema.String, token: Schema.String })
-export type Credentials = typeof Credentials.Type
+const Credentials = Schema.Struct({ url: Schema.String, token: Schema.String })
+type Credentials = typeof Credentials.Type
 
 const decodeCredentials = Schema.decodeUnknownOption(Schema.fromJsonString(Credentials))
 

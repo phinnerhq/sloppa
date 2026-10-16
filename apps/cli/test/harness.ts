@@ -12,13 +12,15 @@ import {
 } from "node:http"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import { setTimeout as sleep } from "node:timers/promises"
 
-export const root = resolve(import.meta.dirname, "../../..")
-export const cli = join(root, "apps/cli/src/main.ts")
-export const serverMain = join(root, "apps/server/src/main.ts")
-export const fixture = join(import.meta.dirname, "fixture.ts")
+const here = dirname(fileURLToPath(import.meta.url))
+const root = resolve(here, "../../..")
+const cli = join(root, "apps/cli/src/main.ts")
+const serverMain = join(root, "apps/server/src/main.ts")
+export const fixture = join(here, "fixture.ts")
 export const work = mkdtempSync(join(tmpdir(), "sloppa-preview-test-"))
 export const secret = randomBytes(32).toString("base64url")
 
@@ -60,14 +62,14 @@ export const exited = (child: ChildProcess) =>
 /** Raw HTTP, so nothing is decompressed or followed on the way. */
 export const get = (url: string, headers: Record<string, string> = {}) =>
   new Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }>((done, fail) => {
-    httpRequest(url, { headers }, (response) => {
+    httpRequest(url, { headers, signal: AbortSignal.timeout(10_000) }, (response) => {
       const chunks: Array<Buffer> = []
       response.on("data", (chunk: Buffer) => chunks.push(chunk))
       response.on("end", () =>
         done({ status: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks) })
       )
     })
-      .on("error", fail)
+      .on("error", (cause) => fail(new Error(`GET ${url}`, { cause })))
       .end()
   })
 
@@ -84,17 +86,41 @@ export interface Sloppa {
 
 /**
  * The environment, minus anything sloppa reads and the test runner's own: Windows needs the rest
- * in any process (SystemRoot and the like), and neither a developer's settings nor node:test's
- * context should reach the server under test.
+ * in any process (SystemRoot and the like), and neither a developer's settings nor vitest's
+ * (NODE_ENV=test among them) should reach the server under test.
  */
 const inherited = Object.fromEntries(
   Object.entries(process.env).filter(
     ([name]) =>
-      !/^(HOST|PORT|PUBLIC_URL|DATA_DIR|STATIC_DIR|TRUST_PROXY|BOOTSTRAP_.*|S3_.*|PREVIEW_.*|NODE_TEST_CONTEXT)$/i.test(
+      !/^(HOST|PORT|PUBLIC_URL|DATA_DIR|STATIC_DIR|TRUST_PROXY|BOOTSTRAP_.*|S3_.*|PREVIEW_.*|NODE_ENV|VITEST.*)$/i.test(
         name
       )
   )
 )
+
+/** A request that fails, saying which, instead of waiting forever. */
+const request = async (what: string, url: string, init: RequestInit = {}) => {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
+  } catch (cause) {
+    throw new Error(`${what}: ${url}`, { cause })
+  }
+}
+
+/**
+ * Every server started, so a test that fails halfway can't leave one running. Stopped like a
+ * deployment would stop it, so it shuts down cleanly and writes its coverage; killed if it won't.
+ */
+const servers = new Set<ChildProcess>()
+export const stopServers = async () => {
+  for (const child of servers) {
+    child.kill("SIGTERM")
+    const timer = setTimeout(() => child.kill("SIGKILL"), 10_000)
+    await exited(child)
+    clearTimeout(timer)
+  }
+  servers.clear()
+}
 
 /** The real server, on fresh ports unless given some, signed in with a fresh agent token. */
 export const startSloppa = async (
@@ -120,8 +146,11 @@ export const startSloppa = async (
     },
     stdio: "ignore"
   })
-  await waitFor(async () => (await get(`${origin}/healthz`).catch(() => undefined))?.status === 200, "sloppa")
-  const login = await fetch(`${url}/api/session`, {
+  servers.add(child)
+  // Both listeners: the preview one comes up first.
+  await waitFor(async () => (await get(`${origin}/healthz`).catch(() => undefined))?.status === 200, "previews")
+  await waitFor(async () => (await get(`${url}/api/openapi.json`).catch(() => undefined))?.status === 200, "the app")
+  const login = await request("sign in", `${url}/api/session`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ username: "test", password: "test-password" })
@@ -130,7 +159,7 @@ export const startSloppa = async (
     .getSetCookie()
     .map((cookie) => cookie.split(";")[0])
     .join("; ")
-  const created = await fetch(`${url}/api/agents`, {
+  const created = await request("create an agent", `${url}/api/agents`, {
     method: "POST",
     headers: { "content-type": "application/json", cookie },
     body: JSON.stringify({ name: `test-${randomBytes(3).toString("hex")}` })
@@ -141,8 +170,52 @@ export const startSloppa = async (
 
 /** The app's preview API, as the dashboard and the MCP tools use it. */
 export const api = async (sloppa: Sloppa, method: string, path: string) => {
-  const response = await fetch(`${sloppa.url}${path}`, { method, headers: { authorization: `Bearer ${sloppa.token}` } })
+  const response = await request(`${method} ${path}`, `${sloppa.url}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${sloppa.token}` }
+  })
   return { status: response.status, json: response.status === 204 ? null : ((await response.json()) as unknown) }
+}
+
+/** Runs any CLI command against `sloppa`, to its end. */
+export const cliRun = (sloppa: { url: string; token: string }, args: ReadonlyArray<string>) =>
+  new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
+    const child = spawn(process.execPath, [cli, ...args], {
+      cwd: work,
+      env: { ...process.env, SLOPPA_URL: sloppa.url, SLOPPA_TOKEN: sloppa.token, XDG_CONFIG_HOME: work },
+      stdio: ["ignore", "pipe", "pipe"]
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk))
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk))
+    void exited(child).then((code) => done({ code, stdout, stderr }))
+  })
+
+/** Calls one of the MCP server's tools as an agent would: a session, then the call. */
+export const mcpTool = async (sloppa: Sloppa, tool: string, args: Record<string, unknown>) => {
+  const rpc = (body: object, session?: string) =>
+    request(`MCP ${"method" in body ? String(body.method) : ""}`, `${sloppa.url}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${sloppa.token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(session === undefined ? {} : { "mcp-session-id": session })
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", ...body })
+    })
+
+  const initialized = await rpc({
+    id: 1,
+    method: "initialize",
+    params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } }
+  })
+  const session = initialized.headers.get("mcp-session-id") ?? undefined
+  await rpc({ method: "notifications/initialized" }, session)
+
+  const called = await rpc({ id: 2, method: "tools/call", params: { name: tool, arguments: args } }, session)
+  return (await called.json()) as { result?: { structuredContent?: unknown; isError?: boolean } }
 }
 
 /** Hands out tickets for `target` the way the real server does, but with whatever `mint` says. */
@@ -201,7 +274,7 @@ export const stopStarted = async () => {
 export const removeWork = () => rmSync(work, { recursive: true, force: true })
 
 /** The fixture, as the dev server a preview runs unless a test gives another command. */
-export const fixtureCommand = [process.execPath, fixture]
+const fixtureCommand = [process.execPath, fixture]
 
 export const spawnCli = (
   sloppa: { url: string; token: string },
@@ -249,7 +322,7 @@ export const stop = async (preview: Running) => {
   await preview.exited
 }
 
-export const readFileSafe = (path: string) => {
+const readFileSafe = (path: string) => {
   try {
     return readFileSync(path, "utf8")
   } catch {

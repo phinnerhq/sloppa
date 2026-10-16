@@ -22,5 +22,12 @@
       }
     ]
   },
-  "include": ["packages/*/src", "apps/*/src", "apps/*/test", "apps/web/vite.config.ts"]
+  "include": [
+    "packages/*/src",
+    "apps/*/src",
+    "apps/*/test",
+    "apps/web/vite.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts"
+  ]
 }

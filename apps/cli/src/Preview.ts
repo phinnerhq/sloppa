@@ -1,17 +1,32 @@
-import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import type { PreviewTicket } from "@sloppa/api"
 import { Close, FINAL, ServerMessage, SUBPROTOCOL } from "@sloppa/preview"
-import { Console, Data, DateTime, Duration, Effect, FiberSet, Option, Schedule, Schema } from "effect"
+import { Console, Data, DateTime, Duration, Effect, FiberSet, Layer, Option, Schedule, Schema } from "effect"
 import { CliError } from "effect/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import * as Socket from "effect/socket/Socket"
 import { createServer } from "node:net"
 import { hostname } from "node:os"
+import { WebSocket } from "ws"
 import { connectLocal, pipe } from "./Pipe.ts"
 import { resolveSpawnCommand } from "./Spawn.ts"
 
+/**
+ * `ws` sockets for Effect's Socket, each with an error listener of its own. Effect removes its
+ * listeners before closing, and `ws` reports closing a socket that's still connecting as an
+ * "error" event: with nobody listening, Node would crash the CLI on it. Effect still hears every
+ * error that matters through its own listener while it has one.
+ */
+const WebSocketConstructor = Layer.succeed(Socket.WebSocketConstructor, (url, options) => {
+  const ws =
+    options === undefined || typeof options === "string" || Array.isArray(options)
+      ? new WebSocket(url, options)
+      : new WebSocket(url, options.protocols, { headers: options.headers })
+  ws.on("error", () => {})
+  return ws as unknown as globalThis.WebSocket
+})
+
 /** Why the preview ended, when the dev server didn't end it itself. */
-export class TunnelClosed extends Data.TaggedError("TunnelClosed")<{
+class TunnelClosed extends Data.TaggedError("TunnelClosed")<{
   readonly code: number
   readonly reason: string
 }> {
@@ -65,7 +80,7 @@ const session = Effect.fnUntraced(function* (
     protocols: SUBPROTOCOL,
     headers: { authorization: `Bearer ${ticket.ticket}` },
     openTimeout: "10 seconds"
-  }).pipe(Effect.provide(NodeSocket.layerWebSocketConstructorWS))
+  }).pipe(Effect.provide(WebSocketConstructor))
   const reader = yield* ws.reader
   const writer = yield* ws.writer
   const send = (message: object) => writer.write(JSON.stringify(message))
@@ -155,10 +170,19 @@ export const tunnel = (
     ),
     Effect.andThen(Effect.never)
   )
-  // A backstop, a little late: when the server is reachable, its own verdict comes first.
+  // A backstop, a little late: when the server is reachable, its own verdict comes first. A tunnel
+  // that never came up didn't run its time: its ticket was dead on arrival, as the server would say.
   const expiry = DateTime.now.pipe(
     Effect.flatMap((now) => Effect.sleep(Duration.sum(DateTime.distance(now, ticket.expiresAt), EXPIRY_GRACE))),
-    Effect.andThen(Effect.fail(new TunnelClosed({ code: Close.Expired, reason: "the preview's time is up" })))
+    Effect.andThen(
+      Effect.suspend(() =>
+        Effect.fail(
+          ready
+            ? new TunnelClosed({ code: Close.Expired, reason: "the preview's time is up" })
+            : new TunnelClosed({ code: Close.Ticket, reason: "expired preview ticket, ask for a new one" })
+        )
+      )
+    )
   )
   return Effect.raceFirst(connected, expiry)
 }

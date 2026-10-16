@@ -1,12 +1,12 @@
 import { type ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
 import { DateTime, Effect, FileSystem, Option, Path, PlatformError, Schema, Stream } from "effect"
 import {
-  type ArtifactStorage,
+  type ArtifactStore,
   legacyCollection,
   type PutInput,
   skipUnreadable,
   type StoredArtifact
-} from "./Storage.ts"
+} from "./StorageShared.ts"
 
 /** Sidecar written next to each file: everything S3 would keep as object metadata. */
 const Meta = Schema.Struct({
@@ -32,7 +32,8 @@ const parseRange = (header: string | undefined, size: number) => {
     match[1] === ""
       ? [Math.max(0, size - Number(match[2])), size - 1]
       : [Number(match[1]), match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1)]
-  return start <= end && start < size ? { start, end } : undefined
+  // The end is clamped to the last byte, so a start past it (or past an empty file) fails this too.
+  return start <= end ? { start, end } : undefined
 }
 
 /** Platform failures surface as `StorageError`s, prefixed with what was being done. */
@@ -152,6 +153,6 @@ export const makeFsStorage = (dir: string) =>
       return { ...artifact, collection }
     })
 
-    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove, setCollection }
+    const service: ArtifactStore = { put, head, read, scan, remove, setCollection }
     return service
   })

@@ -67,9 +67,8 @@ export const rewriteLocation = (location: string, port: number, publicUrl: URL) 
   if (url.port !== String(port) || !["127.0.0.1", "localhost", "[::1]", "0.0.0.0"].includes(url.hostname)) {
     return location
   }
-  url.protocol = publicUrl.protocol
-  url.host = publicUrl.host
-  return url.toString()
+  // Built afresh rather than by setting `host`, which keeps the old port when the new host has none.
+  return new URL(`${url.pathname}${url.search}${url.hash}`, publicUrl.origin).toString()
 }
 
 /**

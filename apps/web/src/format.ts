@@ -7,7 +7,7 @@ const TEXT_TYPES = /^(text\/|application\/(json|xml|yaml|x-yaml|javascript|x-ndj
 const TEXT_EXTENSIONS =
   /\.(txt|log|md|json|ya?ml|toml|csv|tsv|diff|patch|ts|tsx|js|jsx|py|rs|go|java|kt|sh|sql|xml|ini|env)$/i
 
-export const kindOf = (artifact: Artifact): Kind => {
+export const kindOf = (artifact: Pick<Artifact, "name" | "contentType">): Kind => {
   const type = artifact.contentType.split(";")[0]!.trim().toLowerCase()
   if (type.startsWith("image/")) return "image"
   if (type.startsWith("video/")) return "video"

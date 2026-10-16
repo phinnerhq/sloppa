@@ -25,7 +25,8 @@ import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
 import { Previews } from "./Previews.ts"
 import { SetupRoute, setupPrompt } from "./Setup.ts"
-import { ArtifactStorage, uploadOf } from "./Storage.ts"
+import { ArtifactStorage } from "./Storage.ts"
+import { uploadOf } from "./StorageShared.ts"
 import { Thumbnails } from "./Thumbnails.ts"
 import { UploadTickets } from "./Tickets.ts"
 
@@ -298,7 +299,7 @@ const ThumbnailRoute = Layer.effectDiscard(
  * The request log, naming `path` instead of the real one: these routes carry a secret in theirs.
  * Provided to a route's layer, it applies to that route alone.
  */
-export const logAs = (path: string) =>
+const logAs = (path: string) =>
   HttpRouter.middleware((httpApp) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest

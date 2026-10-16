@@ -65,7 +65,7 @@ const previewConfig = (host: string) =>
   })
 
 /** The first user, created (or given this password again) on boot. */
-export interface BootstrapUser {
+interface BootstrapUser {
   readonly username: string
   readonly password: Redacted.Redacted<string>
 }

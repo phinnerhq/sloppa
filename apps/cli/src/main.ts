@@ -15,8 +15,6 @@ const VERSION = "0.1.0"
 /** What the process exits with once everything is cleaned up: the dev server's code, when it ended things. */
 let exitCode = 0
 
-const userError = (message: string) => (cause: unknown) => new CliError.UserError({ cause, userMessage: message })
-
 /** The server's own message for an API error, which says what to do about it. */
 const apiError = (what: string) => (error: { readonly message: string }) =>
   new CliError.UserError({ cause: error, userMessage: `${what}: ${error.message}` })
@@ -85,7 +83,7 @@ const upload = Command.make(
             )
           )
         ),
-        Effect.mapError(userError("Upload failed"))
+        Effect.mapError(apiError("Upload failed"))
       )
     if (json) return yield* Console.log(JSON.stringify(artifacts, null, 2))
     // Ready to paste into a PR: images embed, anything else links.
