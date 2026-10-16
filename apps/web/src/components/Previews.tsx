@@ -1,6 +1,5 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Popover } from "@base-ui/react/popover"
-import { ArrowSquareOutIcon, BroadcastIcon, LockSimpleIcon, StopIcon } from "@phosphor-icons/react"
 import type { Preview } from "@sloppa/api"
 import { DateTime, Exit } from "effect"
 import { AsyncResult } from "effect/reactivity"
@@ -8,6 +7,7 @@ import { useEffect, useState } from "react"
 import { invalidatePreviews, previewsAtom, stopPreviewAtom } from "../api.ts"
 import { formatAgoShort } from "../format.ts"
 import { Button, CopyButton, overlayScrollbar, useNow, useToast } from "./ui.tsx"
+import { ArrowSquareOutIcon, BroadcastIcon, LockSimpleIcon, StopFillIcon } from "./Icon"
 
 const START = "sloppa preview run -- pnpm dev"
 
@@ -71,7 +71,7 @@ const PreviewRow = ({ preview, now }: { preview: Preview; now: number }) => {
           )
         }
       >
-        <StopIcon size={14} weight="fill" />
+        <StopFillIcon size={14} />
       </Button>
     </li>
   )

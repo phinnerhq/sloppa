@@ -1,10 +1,10 @@
 import { useAtomValue } from "@effect/atom-react"
 import { Combobox } from "@base-ui/react/combobox"
-import { CheckIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react"
 import { AsyncResult } from "effect/reactivity"
 import { useRef } from "react"
 import { collectionsAtom } from "../api.ts"
 import { overlayScrollbar, CollectionName } from "./ui.tsx"
+import { CheckIcon, MagnifyingGlassIcon, XIcon } from "./Icon"
 
 /**
  * One field for everything: what's typed searches artifacts, and suggests the collections it matches.
@@ -57,7 +57,7 @@ export const SearchBar = ({
           if (event.target === event.currentTarget) event.currentTarget.querySelector("input")?.focus()
         }}
       >
-        <MagnifyingGlassIcon size={18} weight="bold" className="shrink-0 text-ink/50" />
+        <MagnifyingGlassIcon size={18} className="shrink-0 text-ink/50" />
         <Combobox.Value>
           {(value: Array<string>) =>
             value.map((picked) => (
@@ -70,7 +70,7 @@ export const SearchBar = ({
                   aria-label={`Leave ${picked}`}
                   className="shrink-0 cursor-pointer rounded p-0.5 transition-colors hover:bg-ink/10"
                 >
-                  <XIcon size={12} weight="bold" />
+                  <XIcon size={12} />
                 </Combobox.ChipRemove>
               </Combobox.Chip>
             ))

@@ -1,6 +1,5 @@
 import { useAtom, useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Popover } from "@base-ui/react/popover"
-import { KeyIcon, PencilSimpleIcon, RobotIcon, XIcon } from "@phosphor-icons/react"
 import { type Agent, AGENT_NAME_MAX, type SetupLink } from "@sloppa/api"
 import { DateTime, Exit } from "effect"
 import { AsyncResult, Atom } from "effect/reactivity"
@@ -16,6 +15,7 @@ import {
 } from "../api.ts"
 import { formatAgo } from "../format.ts"
 import { Button, CopyButton, overlayScrollbar, useNow, useToast } from "./ui.tsx"
+import { KeyIcon, PencilSimpleIcon, RobotIcon, XIcon } from "./Icon"
 
 /** The link made last, kept while the tab lives so closing the menu doesn't lose it. */
 const setupLinkAtom = Atom.make<SetupLink | null>(null).pipe(Atom.keepAlive)
@@ -180,7 +180,7 @@ const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
         className={SMALL_ICON}
         onClick={() => setEditing(true)}
       >
-        <PencilSimpleIcon size={14} weight="bold" />
+        <PencilSimpleIcon size={14} />
       </Button>
       <Button
         tone="cream"
@@ -195,7 +195,7 @@ const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
           )
         }}
       >
-        <XIcon size={14} weight="bold" />
+        <XIcon size={14} />
       </Button>
     </li>
   )
@@ -283,7 +283,7 @@ const Agents = () => {
         {!adding && (
           <Button tone="cream" size="sm" onClick={() => setAdding(true)}>
             <span className="flex items-center gap-1.5">
-              <KeyIcon size={14} weight="bold" />
+              <KeyIcon size={14} />
               API key
             </span>
           </Button>

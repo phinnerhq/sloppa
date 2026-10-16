@@ -374,12 +374,12 @@ export const pullRequestUrl = (collection: string): string | undefined => {
   return /^https?:\/\//.test(collection) ? collection : undefined
 }
 
-export class Api extends HttpApi.make("sloppa-artifacts")
+export class Api extends HttpApi.make("sloppa")
   .add(ArtifactsGroup)
   .add(SessionGroup)
   .add(AgentsGroup)
   .add(PreviewsGroup)
-  .annotateMerge(OpenApi.annotations({ title: "Sloppa Artifacts" })) {}
+  .annotateMerge(OpenApi.annotations({ title: "sloppa" })) {}
 
 /** Where agents redeem a setup link, outside the typed API since they read it as plain text. */
 export const setupPath = (code: string) => `/setup/${code}`

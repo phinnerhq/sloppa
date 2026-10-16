@@ -266,7 +266,7 @@ export const McpRoutes = McpServer.toolkit(ArtifactTools).pipe(
   Layer.provide(ArtifactToolHandlers),
   Layer.provide(
     McpServer.layerHttp({
-      name: "sloppa-artifacts",
+      name: "sloppa",
       version: "0.1.0",
       instructions: INSTRUCTIONS,
       path: "/mcp",

@@ -1,13 +1,4 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import {
-  ArrowLeftIcon,
-  ArrowSquareOutIcon,
-  BrowserIcon,
-  CircleNotchIcon,
-  LinkIcon,
-  DownloadSimpleIcon,
-  TrashIcon
-} from "@phosphor-icons/react"
 import { type Artifact, ArtifactId } from "@sloppa/api"
 import { Exit, Option, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
@@ -24,6 +15,15 @@ import { formatAgo, formatDate, formatSize, kindOf, pullRequestUrl } from "../fo
 import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
 import { useSignedIn } from "./Login.tsx"
 import { Button, ButtonLink, CollectionName, CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
+import {
+  ArrowLeftIcon,
+  ArrowSquareOutIcon,
+  BrowserIcon,
+  CircleNotchIcon,
+  DownloadSimpleIcon,
+  LinkIcon,
+  TrashIcon
+} from "./Icon"
 
 const TextPreview = ({ url }: { url: string }) => {
   const result = useAtomValue(textPreviewAtom(url))
@@ -150,11 +150,11 @@ const SellButton = ({ artifact }: { artifact: Artifact }) => {
     >
       {busy ? (
         <>
-          <CircleNotchIcon size={18} weight="bold" className="animate-spin" /> deleting…
+          <CircleNotchIcon size={18} className="animate-spin" /> deleting…
         </>
       ) : (
         <>
-          <TrashIcon size={18} weight="bold" /> delete file
+          <TrashIcon size={18} /> delete file
         </>
       )}
     </Button>
@@ -220,24 +220,24 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
         <div className="grid gap-2.5">
           <CopyButton
             label="copy file URL"
-            icon={<LinkIcon size={18} weight="bold" />}
+            icon={<LinkIcon size={18} />}
             value={artifact.rawUrl}
             toast="file URL copied"
             tone="green"
           />
           <CopyButton
             label="copy page URL"
-            icon={<BrowserIcon size={18} weight="bold" />}
+            icon={<BrowserIcon size={18} />}
             value={artifact.url}
             toast="page URL copied"
             tone="blue"
           />
           <div className="grid grid-cols-2 gap-2.5">
             <ButtonLink href={artifact.rawUrl} target="_blank" rel="noreferrer">
-              <ArrowSquareOutIcon size={18} weight="bold" /> open file
+              <ArrowSquareOutIcon size={18} /> open file
             </ButtonLink>
             <ButtonLink href={`${artifact.rawUrl}?download`} tone="gold">
-              <DownloadSimpleIcon size={18} weight="bold" /> download
+              <DownloadSimpleIcon size={18} /> download
             </ButtonLink>
           </div>
           <SignedIn>

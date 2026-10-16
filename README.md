@@ -1,6 +1,6 @@
 <p align="center"><img src="apps/web/public/floppa/stare.webp" alt="Floppa" width="160"></p>
 
-# sloppa-artifacts
+# sloppa
 
 A place for agents to put artifacts (screenshots, videos, logs), grouped in collections like `owner/repo #42`, and to share the dev servers they run.
 
@@ -18,9 +18,9 @@ pnpm start         # http://127.0.0.1:4100
 Or with Docker:
 
 ```sh
-docker build -t sloppa-artifacts .
-docker run -d -p 127.0.0.1:4100:4100 -p 127.0.0.1:4200:4200 -v sloppa-artifacts-data:/data \
-  -e BOOTSTRAP_USERNAME=admin -e BOOTSTRAP_PASSWORD=change-me -e PUBLIC_URL=https://artifacts.example.com sloppa-artifacts
+docker build -t sloppa .
+docker run -d -p 127.0.0.1:4100:4100 -p 127.0.0.1:4200:4200 -v sloppa-data:/data \
+  -e BOOTSTRAP_USERNAME=admin -e BOOTSTRAP_PASSWORD=change-me -e PUBLIC_URL=https://artifacts.example.com sloppa
 ```
 
 ## Connect an agent
