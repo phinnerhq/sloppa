@@ -11,6 +11,7 @@ import { WebSocket } from "ws"
 import {
   alive,
   api,
+  cliRun,
   exited,
   freePort,
   get,
@@ -210,11 +211,24 @@ describe.skipIf(process.platform === "win32")("sloppa preview run", () => {
     expect(await status(preview.url)).toBe(404)
   })
 
-  it("stopping from sloppa ends the CLI and its dev server", async () => {
+  it("sloppa preview list shows it, and stop ends the CLI and its dev server, even twice", async () => {
     const preview = await run(sloppa)
     const [server] = preview.pids()
-    expect((await api(sloppa, "DELETE", `/api/previews/${preview.id}`)).status).toBe(204)
+    const listed = await cliRun(sloppa, ["preview", "list"])
+    expect(
+      listed.stdout
+        .split("\n")
+        .find((line) => line.startsWith(`${preview.id}\t`))
+        ?.split("\t")[1]
+    ).toBe(preview.url)
+
+    const stopped = await cliRun(sloppa, ["preview", "stop", preview.id])
+    expect(stopped).toMatchObject({ code: 0, stdout: `stopped: ${preview.id}\n` })
     expect(await preview.exited, preview.stderr()).toBe(0)
+    expect(await cliRun(sloppa, ["preview", "stop", preview.id])).toMatchObject({
+      code: 0,
+      stdout: `not running: ${preview.id}\n`
+    })
     expect(preview.stderr()).toMatch(/stopped from sloppa/)
     await waitFor(() => !alive(server), "the dev server to stop")
   })

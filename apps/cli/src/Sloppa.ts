@@ -25,7 +25,7 @@ const decodeCredentials = Schema.decodeUnknownOption(Schema.fromJsonString(Crede
 
 const notLoggedIn = new CliError.UserError({
   cause: new Error(
-    "Not signed in to sloppa: set SLOPPA_URL and SLOPPA_TOKEN, or pipe an agent token into `sloppa login <url>`"
+    'Not signed in to sloppa: set SLOPPA_URL and SLOPPA_TOKEN, or pipe an agent token in:\n  printf %s "$TOKEN" | sloppa login <url>'
   )
 })
 

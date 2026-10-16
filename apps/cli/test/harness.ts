@@ -177,14 +177,15 @@ export const api = async (sloppa: Sloppa, method: string, path: string) => {
   return { status: response.status, json: response.status === 204 ? null : ((await response.json()) as unknown) }
 }
 
-/** Runs any CLI command against `sloppa`, to its end. */
-export const cliRun = (sloppa: { url: string; token: string }, args: ReadonlyArray<string>) =>
+/** Runs any CLI command against `sloppa`, to its end, with `input` piped to its stdin. */
+export const cliRun = (sloppa: { url: string; token: string }, args: ReadonlyArray<string>, input?: string) =>
   new Promise<{ code: number; stdout: string; stderr: string }>((done) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd: work,
       env: { ...process.env, SLOPPA_URL: sloppa.url, SLOPPA_TOKEN: sloppa.token, XDG_CONFIG_HOME: work },
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"]
     })
+    child.stdin.end(input ?? "")
     let stdout = ""
     let stderr = ""
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk))

@@ -1,5 +1,5 @@
-// Artifacts end to end, over loopback: `sloppa upload`, the one-time upload URLs agents get over
-// MCP, listing, and byte ranges on shared links, against the real server.
+// Artifacts end to end, over loopback: the `sloppa artifact` and `sloppa collection` commands, the
+// one-time upload URLs agents get over MCP, listing, and byte ranges on shared links, against the real server.
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -31,7 +31,7 @@ interface Uploaded {
 }
 
 const upload = async (collection: string, ...paths: Array<string>) => {
-  const { code, stdout, stderr } = await cliRun(sloppa, ["upload", "--json", "-c", collection, ...paths])
+  const { code, stdout, stderr } = await cliRun(sloppa, ["artifact", "upload", "--json", "-c", collection, ...paths])
   expect(code, stderr).toBe(0)
   return JSON.parse(stdout) as Array<Uploaded>
 }
@@ -43,12 +43,12 @@ const list = async (query: Record<string, string>) => {
   return { status: response.status, page: (await response.json()) as { items: Array<Uploaded>; nextCursor?: string } }
 }
 
-describe("sloppa upload", () => {
+describe("sloppa artifact upload", () => {
   it("prints a Markdown link per file, embedding images, each serving what was uploaded", async () => {
     const png = file("shot.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
     const log = file("run.log", "line one\nline two\n")
 
-    const { code, stdout, stderr } = await cliRun(sloppa, ["upload", "-c", "o/r #1", png, log])
+    const { code, stdout, stderr } = await cliRun(sloppa, ["artifact", "upload", "-c", "o/r #1", png, log])
 
     expect(code, stderr).toBe(0)
     const [image, link] = stdout.trim().split("\n")
@@ -69,6 +69,7 @@ describe("sloppa upload", () => {
 
   it("fails, storing nothing, with a token the server doesn't know", async () => {
     const { code, stderr } = await cliRun({ ...sloppa, token: "not-a-token" }, [
+      "artifact",
       "upload",
       "-c",
       "o/r #3",
@@ -83,17 +84,126 @@ describe("sloppa upload", () => {
   it("fails when the server can't be reached", async () => {
     const nowhere = { url: `http://127.0.0.1:${await freePort()}`, token: sloppa.token }
 
-    const { code, stderr } = await cliRun(nowhere, ["upload", "-c", "o/r #4", file("lost.txt", "x")])
+    const { code, stderr } = await cliRun(nowhere, ["artifact", "upload", "-c", "o/r #4", file("lost.txt", "x")])
 
     expect(code).toBe(1)
     expect(stderr).toMatch(/Upload failed.*Transport error/)
   })
 
-  it("refuses a file that doesn't exist, before sending anything", async () => {
-    const { code } = await cliRun(sloppa, ["upload", "-c", "o/r #5", join(work, "missing.txt")])
+  it("uploads nothing when any file doesn't exist", async () => {
+    const { code, stderr } = await cliRun(sloppa, [
+      "artifact",
+      "upload",
+      "-c",
+      "o/r #5",
+      file("fine.txt", "x"),
+      join(work, "missing.txt")
+    ])
 
-    expect(code).not.toBe(0)
+    expect(code).toBe(1)
+    expect(stderr).toContain(`Not a file: ${join(work, "missing.txt")}`)
     expect((await list({ collection: "o/r #5" })).page.items).toEqual([])
+  })
+
+  it("uploads what's piped in, under --name, for -", async () => {
+    const { code, stdout, stderr } = await cliRun(
+      sloppa,
+      ["artifact", "upload", "-c", "o/r #6", "--name", "piped.log", "-"],
+      "from a pipe\n"
+    )
+
+    expect(code, stderr).toBe(0)
+    const served = await fetch(/\((.+)\)/.exec(stdout)![1]!)
+    expect(await served.text()).toBe("from a pipe\n")
+  })
+
+  it("refuses - without --name, sending nothing", async () => {
+    const { code, stderr } = await cliRun(sloppa, ["artifact", "upload", "-c", "o/r #7", "-"], "x")
+
+    expect(code).toBe(1)
+    expect(stderr).toContain("--name report.md -")
+    expect((await list({ collection: "o/r #7" })).page.items).toEqual([])
+  })
+})
+
+describe("sloppa artifact list, get, move and delete", () => {
+  /** The CLI's text output: one tab-separated line per item. */
+  const rows = (stdout: string) =>
+    stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split("\t"))
+
+  it("lists one line per artifact, and prints the next page's command on stderr", async () => {
+    const uploaded = await upload("o/r #40", file("one.txt", "1"), file("two.txt", "2"), file("three.txt", "3"))
+
+    const first = await cliRun(sloppa, ["artifact", "list", "-c", "o/r #40", "--limit", "2"])
+    const next = /^more: sloppa (.+)$/m.exec(first.stderr)![1]!
+    // The printed command, as a shell would split it: the collection is quoted for its space and #.
+    expect(next).toMatch(/^artifact list -c 'o\/r #40' --limit 2 --cursor \S+$/)
+    const words = next.match(/'[^']*'|\S+/g)!.map((word) => (word.startsWith("'") ? word.slice(1, -1) : word))
+    const second = await cliRun(sloppa, words)
+
+    expect(first.code).toBe(0)
+    expect(rows(first.stdout)).toHaveLength(2)
+    expect(second.stderr).not.toContain("more:")
+    const listed = [...rows(first.stdout), ...rows(second.stdout)]
+    expect(listed.map((row) => row[0]!).toSorted()).toEqual(uploaded.map((artifact) => artifact.id).toSorted())
+    expect(listed.find(([, name]) => name === "two.txt")).toEqual([
+      uploaded.find((artifact) => artifact.name === "two.txt")!.id,
+      "two.txt",
+      "o/r #40",
+      uploaded.find((artifact) => artifact.name === "two.txt")!.rawUrl
+    ])
+  })
+
+  it("gets an artifact's fields, and points at list for an unknown id", async () => {
+    const [artifact] = await upload("o/r #41", file("shown.txt", "abc"))
+
+    const shown = await cliRun(sloppa, ["artifact", "get", artifact!.id])
+    const missing = await cliRun(sloppa, ["artifact", "get", "00000000-0000-4000-8000-000000000000"])
+
+    expect(shown.stdout).toContain(`name: shown.txt\ncollection: o/r #41\n`)
+    expect(shown.stdout).toContain(`raw_url: ${artifact!.rawUrl}`)
+    expect(missing.code).toBe(1)
+    expect(missing.stderr).toContain("find ids with sloppa artifact list")
+  })
+
+  it("moves an artifact to another collection, keeping its links", async () => {
+    const [artifact] = await upload("o/r #42", file("moved.txt", "m"))
+
+    const { code } = await cliRun(sloppa, ["artifact", "move", artifact!.id, "-c", "o/r #43"])
+
+    expect(code).toBe(0)
+    expect((await list({ collection: "o/r #43" })).page.items.map((item) => item.id)).toEqual([artifact!.id])
+    expect(await (await fetch(artifact!.rawUrl)).text()).toBe("m")
+  })
+
+  it("deletes only with --yes, shows what would go with --dry-run, and succeeds again once it's gone", async () => {
+    const [artifact] = await upload("o/r #44", file("doomed.txt", "d"))
+
+    const refused = await cliRun(sloppa, ["artifact", "delete", artifact!.id])
+    const dry = await cliRun(sloppa, ["artifact", "delete", artifact!.id, "--dry-run"])
+    const stillThere = (await fetch(artifact!.rawUrl)).status
+    const deleted = await cliRun(sloppa, ["artifact", "delete", artifact!.id, "--yes"])
+    const again = await cliRun(sloppa, ["artifact", "delete", artifact!.id, "--yes"])
+
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toContain(`sloppa artifact delete ${artifact!.id} --yes`)
+    expect(dry.stdout).toMatch(new RegExp(`^would delete: ${artifact!.id}\tdoomed.txt`))
+    expect(stillThere).toBe(200)
+    expect(deleted.stdout.trim()).toBe(`deleted: ${artifact!.id}`)
+    expect(again).toMatchObject({ code: 0, stdout: `already gone: ${artifact!.id}\n` })
+    expect((await fetch(artifact!.rawUrl)).status).toBe(404)
+  })
+
+  it("lists collections with their counts", async () => {
+    await upload("o/r #45", file("a.txt", "a"), file("b.txt", "b"))
+
+    const { stdout } = await cliRun(sloppa, ["collection", "list"])
+
+    expect(rows(stdout).find(([name]) => name === "o/r #45")?.[1]).toBe("2")
   })
 })
 
@@ -221,7 +331,10 @@ describe("upload URLs from MCP", () => {
 
   it("refuse a URL that was altered, storing nothing", async () => {
     const ticket = await requestUpload({ name: "forged.txt", collection: "o/r #33" })
-    const forged = ticket.uploadUrl.replace(/.$/, (last) => (last === "A" ? "B" : "A"))
+    // The signature's first character: its last one carries padding bits, so some edits there change nothing.
+    const forged = ticket.uploadUrl.replace(/\.(.)([^.]*)$/, (_, first: string, rest: string) =>
+      first === "A" ? `.B${rest}` : `.A${rest}`
+    )
 
     const response = await put(forged, "x")
 
