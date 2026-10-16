@@ -1,4 +1,4 @@
-// End to end, over loopback: the real CLI, the real sloppa server with its preview listener, and
+// End to end, over loopback: the real CLI, the real sloppa server with its previews, and
 // a dev server. A stub hands out the tickets the real server never would: forged, expired, or
 // pointing at a server the test then kills. POSIX only: it signals process groups, and the memory
 // test reads /proc, so Linux alone runs that one.
@@ -237,7 +237,7 @@ describe.skipIf(process.platform === "win32")("sloppa preview run", () => {
     const preview = await run(sloppa)
     sloppa.process.kill("SIGTERM")
     await exited(sloppa.process)
-    sloppa = await startSloppa({ ports: sloppa.ports, dataDir: sloppa.dataDir })
+    sloppa = await startSloppa({ port: sloppa.port, dataDir: sloppa.dataDir })
     await waitFor(() => preview.stderr().includes("reconnected"), "the reconnect")
     expect(await status(`${preview.url}back`)).toBe(200)
     await stop(preview)
@@ -290,7 +290,13 @@ describe.skipIf(process.platform === "win32")("sloppa preview run", () => {
   })
 })
 
-describe.skipIf(process.platform === "win32")("the preview listener", () => {
+describe.skipIf(process.platform === "win32")("previews on the app's port", () => {
+  it("keep the app's routes to the app's own host", async () => {
+    expect(await status(`${sloppa.url}/api/openapi.json`)).toBe(200)
+    expect(await status(`${sloppa.origin}/api/openapi.json`)).toBe(404)
+    expect(await status(`http://nothing-here.${new URL(sloppa.origin).host}/api/openapi.json`)).toBe(404)
+  })
+
   it("rate-limits guesses at unknown hosts", async () => {
     const strict = await startSloppa({ env: { PREVIEW_MISS_BURST: "3", PREVIEW_MISS_EVERY: "1 minute" } })
     try {

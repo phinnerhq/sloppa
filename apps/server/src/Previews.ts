@@ -4,7 +4,6 @@ import { Context, DateTime, Duration, Effect, Layer, Redacted } from "effect"
 import type { Account } from "./Accounts.ts"
 import { AppConfig } from "./Config.ts"
 import { type Lease, Leases } from "./preview/Leases.ts"
-import { PreviewServerLive } from "./preview/Server.ts"
 
 const unavailable = new PreviewsUnavailable({
   message: "Previews aren't set up on this server: set PREVIEW_ORIGIN and PREVIEW_SECRET"
@@ -29,7 +28,7 @@ const toPreview = (lease: Lease) =>
 /**
  * `sloppa preview run`, from the app's side: it signs the tickets the CLI connects with, and
  * lists and stops what's connected. The leases themselves live in `Leases`, in memory, for
- * exactly as long as each CLI stays connected to the preview listener.
+ * exactly as long as each CLI stays connected to its tunnel.
  */
 export class Previews extends Context.Service<
   Previews,
@@ -89,5 +88,5 @@ export class Previews extends Context.Service<
         })
       })
     })
-  ).pipe(Layer.provide(PreviewServerLive))
+  ).pipe(Layer.provide(Leases.layer))
 }

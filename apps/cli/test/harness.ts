@@ -1,4 +1,4 @@
-// The end-to-end harness: the real server with its preview listener, the real CLI from source,
+// The end-to-end harness: the real server with its previews, the real CLI from source,
 // and the fixture dev server. Shared by the suites, which each stop what they started.
 import { passwordMac, previewId, signTicket } from "@sloppa/preview"
 import { type ChildProcess, spawn } from "node:child_process"
@@ -78,7 +78,7 @@ export const status = async (url: string) => (await get(url)).status
 export interface Sloppa {
   /** The app, where the CLI asks for tickets. */
   readonly url: string
-  /** The preview listener's apex. */
+  /** The preview domain's apex. */
   readonly origin: string
   readonly token: string
   readonly process: ChildProcess
@@ -122,14 +122,14 @@ export const stopServers = async () => {
   servers.clear()
 }
 
-/** The real server, on fresh ports unless given some, signed in with a fresh agent token. */
+/** The real server, on a fresh port unless given one, signed in with a fresh agent token. */
 export const startSloppa = async (
-  options: { env?: Record<string, string>; ports?: [number, number]; dataDir?: string } = {}
-): Promise<Sloppa & { readonly ports: [number, number]; readonly dataDir: string }> => {
-  const [port, previewPort] = options.ports ?? [await freePort(), await freePort()]
+  options: { env?: Record<string, string>; port?: number; dataDir?: string } = {}
+): Promise<Sloppa & { readonly port: number; readonly dataDir: string }> => {
+  const port = options.port ?? (await freePort())
   const dataDir = options.dataDir ?? mkdtempSync(join(work, "data-"))
   const url = `http://127.0.0.1:${port}`
-  const origin = `http://preview.localhost:${previewPort}`
+  const origin = `http://preview.localhost:${port}`
   const child = spawn(process.execPath, [serverMain], {
     env: {
       ...inherited,
@@ -140,15 +140,12 @@ export const startSloppa = async (
       BOOTSTRAP_PASSWORD: "test-password",
       PREVIEW_ORIGIN: origin,
       PREVIEW_SECRET: secret,
-      PREVIEW_PORT: String(previewPort),
       PREVIEW_MISS_BURST: "1000",
       ...options.env
     },
     stdio: "ignore"
   })
   servers.add(child)
-  // Both listeners: the preview one comes up first.
-  await waitFor(async () => (await get(`${origin}/healthz`).catch(() => undefined))?.status === 200, "previews")
   await waitFor(async () => (await get(`${url}/api/openapi.json`).catch(() => undefined))?.status === 200, "the app")
   const login = await request("sign in", `${url}/api/session`, {
     method: "POST",
@@ -165,7 +162,7 @@ export const startSloppa = async (
     body: JSON.stringify({ name: `test-${randomBytes(3).toString("hex")}` })
   })
   const { token } = (await created.json()) as { token: string }
-  return { url, origin, token, process: child, ports: [port, previewPort], dataDir }
+  return { url, origin, token, process: child, port, dataDir }
 }
 
 /** The app's preview API, as the dashboard and the MCP tools use it. */

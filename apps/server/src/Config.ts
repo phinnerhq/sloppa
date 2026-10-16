@@ -20,15 +20,12 @@ const s3Config = Effect.gen(function* () {
   } satisfies S3Config
 })
 
-/** `sloppa preview run`: tickets, the tunnels, and the previews themselves, on a port of their own. */
+/** `sloppa preview run`: tickets, the tunnels, and the previews themselves, on the app's port. */
 export interface PreviewConfig {
   /** Like https://preview.example.com: previews are its subdomains, and the apex takes the tunnels. */
   readonly origin: URL
   /** Signs preview tickets, which the tunnel endpoint checks offline. */
   readonly secret: Redacted.Redacted<string>
-  /** Plain HTTP for the reverse proxy, separate from the app's own port. */
-  readonly host: string
-  readonly port: number
   /** Failed guesses (unknown hosts, wrong passwords, bad tickets) a client gets, refilled one per `missEvery`. */
   readonly missBurst: number
   readonly missEvery: Duration.Duration
@@ -46,7 +43,7 @@ const parseOrigin = (raw: string) => {
   return new URL(url.origin)
 }
 
-const previewConfig = (host: string) =>
+const previewConfig = (publicUrl: string) =>
   Effect.gen(function* () {
     const origin = yield* Config.String("PREVIEW_ORIGIN").pipe(Config.withDefault(""))
     const secret = yield* Config.Redacted("PREVIEW_SECRET").pipe(Config.withDefault(undefined))
@@ -54,11 +51,15 @@ const previewConfig = (host: string) =>
     if (Redacted.value(secret).length < 32) {
       return yield* Effect.die(new Error("PREVIEW_SECRET needs at least 32 characters (openssl rand -base64 32)"))
     }
+    const parsed = yield* Effect.sync(() => parseOrigin(origin))
+    // The app and the previews share a port, told apart by Host: the app's can't be a preview's.
+    const app = new URL(publicUrl).hostname
+    if (app === parsed.hostname || app.endsWith(`.${parsed.hostname}`)) {
+      return yield* Effect.die(new Error(`PUBLIC_URL: ${app} is the preview domain's, give the app a host of its own`))
+    }
     return {
-      origin: yield* Effect.sync(() => parseOrigin(origin)),
+      origin: parsed,
       secret,
-      host: yield* Config.String("PREVIEW_HOST").pipe(Config.withDefault(host)),
-      port: yield* Config.Port("PREVIEW_PORT").pipe(Config.withDefault(4200)),
       missBurst: yield* Config.Int("PREVIEW_MISS_BURST").pipe(Config.withDefault(20)),
       missEvery: yield* Config.Duration("PREVIEW_MISS_EVERY").pipe(Config.withDefault(Duration.seconds(3)))
     } satisfies PreviewConfig
@@ -107,18 +108,19 @@ export class AppConfig extends Context.Service<
     Effect.gen(function* () {
       const host = yield* Config.String("HOST").pipe(Config.withDefault("127.0.0.1"))
       const port = yield* Config.Int("PORT").pipe(Config.withDefault(4100))
+      const publicUrl = (yield* Config.String("PUBLIC_URL").pipe(
+        Config.withDefault(`http://${localHost(host)}:${port}`)
+      )).replace(/\/+$/, "")
       return AppConfig.of({
         host,
         port,
-        publicUrl: (yield* Config.String("PUBLIC_URL").pipe(
-          Config.withDefault(`http://${localHost(host)}:${port}`)
-        )).replace(/\/+$/, ""),
+        publicUrl,
         bootstrapUser: yield* bootstrapUser,
         trustProxy: yield* Config.Boolean("TRUST_PROXY").pipe(Config.withDefault(false)),
         staticDir: yield* Config.String("STATIC_DIR").pipe(Config.withDefault(undefined)),
         dataDir: yield* Config.String("DATA_DIR").pipe(Config.withDefault(".data")),
         s3: yield* s3Config,
-        preview: yield* previewConfig(host)
+        preview: yield* previewConfig(publicUrl)
       })
     })
   )

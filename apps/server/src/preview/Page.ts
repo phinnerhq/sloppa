@@ -3,7 +3,7 @@ import type { Duplex } from "node:stream"
 
 export const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
 
-/** A small HTML page for the preview listener's own answers. `body` is HTML: escape anything that came from outside. */
+/** A small HTML page for the preview proxy's own answers. `body` is HTML: escape anything that came from outside. */
 const render = (status: number, title: string, body: string) => `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)}</title>

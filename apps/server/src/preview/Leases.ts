@@ -150,7 +150,7 @@ export class Lease {
   }
 
   /** Any message from the CLI says it's still there. */
-  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
+  // fallow-ignore-next-line unused-class-member -- called from the preview proxy, on a lease it looked up
   seen() {
     this.#heard = true
   }
@@ -188,7 +188,7 @@ export class Lease {
   }
 
   /** The CLI opened the data socket for `conn`; false when nobody waits for it any more. */
-  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
+  // fallow-ignore-next-line unused-class-member -- called from the preview proxy, on a lease it looked up
   accept(conn: string, ws: WebSocket) {
     const dial = this.#forget(conn)
     if (dial === undefined) return false
@@ -198,7 +198,7 @@ export class Lease {
     return true
   }
 
-  // fallow-ignore-next-line unused-class-member -- called from the preview listener, on a lease it looked up
+  // fallow-ignore-next-line unused-class-member -- called from the preview proxy, on a lease it looked up
   refuse(conn: string, reason: string) {
     this.#forget(conn)?.reject(new RefusedError(`nothing accepts connections on port ${this.hello.port}: ${reason}`))
   }

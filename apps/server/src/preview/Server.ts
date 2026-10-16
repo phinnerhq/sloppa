@@ -8,7 +8,9 @@ import {
   type TicketBody,
   verifyTicket
 } from "@sloppa/preview"
+import { NodeHttpServer } from "@effect/platform-node"
 import { Duration, Effect, FiberSet, Layer, Option, Redacted, Schema } from "effect"
+import { HttpServer } from "effect/http"
 import { createServer, type IncomingMessage, type OutgoingHttpHeaders } from "node:http"
 import type { Duplex } from "node:stream"
 import { type WebSocket, WebSocketServer } from "ws"
@@ -41,10 +43,11 @@ const NO_PREVIEW: Refusal = [
 ]
 const NOT_FOUND: Refusal = [404, "Not found", ""]
 
+type Route = { readonly _tag: "Apex"; readonly path: string } | { readonly _tag: "Preview"; readonly label: string }
+
 /**
- * Where previews are served: plain HTTP on a port of its own, routed by Host alone. The apex
- * takes the CLI's tunnels, `<label>.<apex>` is a preview, and nothing else is served: no header
- * ever picks where a request goes beyond the label.
+ * Previews, routed by Host alone: the apex takes the CLI's tunnels, `<label>.<apex>` is a preview,
+ * and no header ever picks where a request goes beyond the label.
  */
 const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boolean) {
   const leases = yield* Leases
@@ -71,11 +74,12 @@ const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boo
       server.handleUpgrade(request, socket, early, (ws) => resume(Effect.succeed(ws)))
     )
 
-  const routeOf = (request: IncomingMessage) => {
+  /** Where a request for the preview domain goes; anything else is the app's. */
+  const routeOf = (request: IncomingMessage): Route | undefined => {
     const host = hostOf(request.headers.host)
-    if (host === apex) return { _tag: "Apex", path: new URL(request.url ?? "/", "http://x").pathname } as const
-    if (host.endsWith(`.${apex}`)) return { _tag: "Preview", label: host.slice(0, -apex.length - 1) } as const
-    return { _tag: "Elsewhere" } as const
+    if (host === apex) return { _tag: "Apex", path: new URL(request.url ?? "/", "http://x").pathname }
+    if (host.endsWith(`.${apex}`)) return { _tag: "Preview", label: host.slice(0, -apex.length - 1) }
+    return undefined
   }
 
   /** The lease a preview request may go through, or why not. Unknown names and wrong passwords cost a miss. */
@@ -105,9 +109,8 @@ const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boo
     return { lease }
   }
 
-  const onRequest = (request: IncomingMessage, response: Parameters<typeof page>[0]) =>
+  const onRequest = (route: Route, request: IncomingMessage, response: Parameters<typeof page>[0]) =>
     Effect.suspend(() => {
-      const route = routeOf(request)
       switch (route._tag) {
         case "Apex":
           if (route.path === "/healthz") {
@@ -128,15 +131,12 @@ const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boo
           if ("refusal" in admitted) return Effect.sync(() => page(response, ...admitted.refusal))
           return forward(admitted.lease, request, response, client)
         }
-        case "Elsewhere":
-          return Effect.sync(() => page(response, ...NOT_FOUND))
       }
     })
 
-  const onUpgrade = (request: IncomingMessage, socket: Duplex, early: Buffer) =>
+  const onUpgrade = (route: Route, request: IncomingMessage, socket: Duplex, early: Buffer) =>
     Effect.suspend(() => {
       socket.on("error", () => socket.destroy())
-      const route = routeOf(request)
       const client = clientAddr(request, trustProxy)
       const refuse = (refusal: Refusal) => Effect.sync(() => rawPage(socket, ...refusal))
       switch (route._tag) {
@@ -145,8 +145,6 @@ const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boo
           if ("refusal" in admitted) return refuse(admitted.refusal)
           return forwardUpgrade(admitted.lease, request, socket, early, client)
         }
-        case "Elsewhere":
-          return refuse(NOT_FOUND)
         case "Apex":
           if (misses.blocked(client)) return refuse(tooMany)
           if (route.path === "/_connect") return connect(request, socket, early, client)
@@ -214,7 +212,7 @@ const make = Effect.fnUntraced(function* (config: PreviewConfig, trustProxy: boo
       return leases.serve({ ticket, hello: trimmed, url, control: ws })
     }).pipe(Effect.annotateLogs({ client }))
 
-  return { onRequest, onUpgrade }
+  return { routeOf, onRequest, onUpgrade }
 })
 
 const firstMessage = (ws: WebSocket) =>
@@ -224,36 +222,54 @@ const firstMessage = (ws: WebSocket) =>
     return Effect.sync(() => ws.off("message", onMessage))
   })
 
-/** Starts the preview listener when previews are configured, and stops it, leases first, with the app. */
-export const PreviewServerLive = Layer.effectDiscard(
-  Effect.gen(function* () {
-    const { preview, trustProxy } = yield* AppConfig
-    if (preview === undefined) return
-    const { onRequest, onUpgrade } = yield* make(preview, trustProxy)
-    const server = createServer({
-      // Long uploads and long-lived responses are the dev server's business, not a timeout's.
-      requestTimeout: 0,
-      headersTimeout: 10_000
+/**
+ * The one HTTP server, for the app and the previews: a request for the preview domain, by Host,
+ * goes to the previews, and everything else to the app.
+ */
+export const layerHttpServer = (options: { readonly host: string; readonly port: number }) =>
+  Layer.effect(
+    HttpServer.HttpServer,
+    Effect.gen(function* () {
+      const { preview, trustProxy } = yield* AppConfig
+      const previews = preview === undefined ? undefined : yield* make(preview, trustProxy)
+      const fibers = yield* FiberSet.make()
+      const run = yield* FiberSet.runtime(fibers)()
+      // Long uploads and long-lived responses, a dev server's streams included, aren't a timeout's business.
+      const server = createServer({ requestTimeout: 0, headersTimeout: 10_000 })
+      const emit = server.emit.bind(server)
+      // The port opens before the app's routes are up: requests for them wait for their listener.
+      const waiting: Array<readonly [event: string, args: Array<any>]> = []
+      server.on("newListener", (event) => {
+        if (event === "request")
+          queueMicrotask(() => waiting.splice(0).forEach(([event, args]) => emit(event, ...args)))
+      })
+      // Node only emits upgrades once something listens for them, and the app's listener comes later.
+      server.on("upgrade", () => {})
+      server.emit = ((event: string | symbol, ...args: Array<any>) => {
+        if (event !== "request" && event !== "upgrade") return emit(event, ...args)
+        const route = previews?.routeOf(args[0])
+        if (route !== undefined) {
+          run(
+            event === "request"
+              ? previews!.onRequest(route, args[0], args[1])
+              : previews!.onUpgrade(route, args[0], args[1], args[2])
+          )
+        } else if (server.listenerCount("request") === 0) {
+          waiting.push([event, args])
+        } else {
+          emit(event, ...args)
+        }
+        return true
+      }) as typeof server.emit
+      // A CLI's tunnel would hold the close open: the leases end first, and their going-away close
+      // sends every CLI to reconnect to the next process.
+      const close = server.close.bind(server)
+      const runPromise = Effect.runPromiseWith(yield* Effect.context<never>())
+      server.close = ((callback?: (error?: Error) => void) => {
+        void runPromise(FiberSet.clear(fibers)).then(() => close(callback))
+        return server
+      }) as typeof server.close
+      if (preview !== undefined) yield* Effect.logInfo(`Serving previews for ${preview.origin.origin}`)
+      return yield* NodeHttpServer.make(() => server, options)
     })
-    const fibers = yield* FiberSet.make()
-    const run = yield* FiberSet.runtime(fibers)()
-    server.on("request", (request, response) => run(onRequest(request, response)))
-    server.on("upgrade", (request, socket: Duplex, early: Buffer) => run(onUpgrade(request, socket, early)))
-    server.on("clientError", (_error, socket) => socket.destroy())
-    yield* Effect.acquireRelease(
-      Effect.callback<void, Error>((resume) => {
-        server.once("error", (error) => resume(Effect.fail(error)))
-        server.listen(preview.port, preview.host, () => resume(Effect.void))
-      }),
-      () =>
-        Effect.callback<void>((resume) => {
-          server.close(() => resume(Effect.void))
-          server.closeAllConnections()
-        })
-    ).pipe(Effect.orDie)
-    // Runs before the listener closes: interrupting the leases sends every CLI a going-away
-    // close, so they reconnect to the next process.
-    yield* Effect.addFinalizer(() => FiberSet.clear(fibers))
-    yield* Effect.logInfo(`Serving previews on http://${preview.host}:${preview.port} for ${preview.origin.origin}`)
-  })
-).pipe(Layer.provideMerge(Leases.layer))
+  ).pipe(Layer.provide(Leases.layer))

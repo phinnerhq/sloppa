@@ -25,7 +25,7 @@ jobs:
       # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin.
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
-      # The CLI end to end, against the real server and its preview listener. Coverage from every
+      # The CLI end to end, against the real server and its previews. Coverage from every
       # process, test workers and spawned servers alike, for fallow's CRAP scores.
       - run: pnpm run test
         env:

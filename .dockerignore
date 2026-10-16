@@ -10,3 +10,8 @@ Dockerfile
 *.log
 README.md
 scripts/mascot
+.github
+.fallow
+coverage
+docs
+skills

@@ -43,7 +43,7 @@ const ticket = (overrides: Partial<TicketBody> = {}): TicketBody => ({
   ...overrides
 })
 
-/** Serves a lease on `ws` in the background, as the preview listener does for each control socket. */
+/** Serves a lease on `ws` in the background, as the preview proxy does for each control socket. */
 const serve = (ws: FakeSocket, body: TicketBody = ticket()) =>
   Effect.gen(function* () {
     const leases = yield* Leases
