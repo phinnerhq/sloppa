@@ -2,7 +2,8 @@ import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { type Artifact, ArtifactId } from "@sloppa/api"
 import { Exit, Option, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
-import { type ReactNode, useState } from "react"
+import { Dialog } from "@base-ui/react/dialog"
+import { type MouseEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react"
 import {
   artifactAtom,
   collectionPath,
@@ -14,7 +15,18 @@ import {
 import { formatAgo, formatDate, formatSize, kindOf, pullRequestUrl } from "../format.ts"
 import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
 import { useSignedIn } from "./Login.tsx"
-import { Button, ButtonLink, CollectionName, CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
+import {
+  Button,
+  ButtonLink,
+  CollectionName,
+  CopyButton,
+  LinkButton,
+  Loading,
+  Notice,
+  overlayScrollbarWith,
+  scrollbars,
+  useToast
+} from "./ui.tsx"
 import {
   ArrowLeftIcon,
   ArrowSquareOutIcon,
@@ -22,7 +34,8 @@ import {
   CircleNotchIcon,
   DownloadSimpleIcon,
   LinkIcon,
-  TrashIcon
+  TrashIcon,
+  XIcon
 } from "./Icon"
 
 const TextPreview = ({ url }: { url: string }) => {
@@ -54,40 +67,131 @@ const TooBig = ({ artifact, title }: { artifact: Artifact; title: string }) => (
  */
 const STAGE = "flex max-h-[70vh] w-full items-center justify-center"
 
+/** Where a zooming click landed: as fractions of the image, and as a point on screen. */
+interface Anchor {
+  readonly fx: number
+  readonly fy: number
+  readonly x: number
+  readonly y: number
+}
+
+/** Whether the image is drawn smaller than it is, so showing it at its own size would enlarge it. */
+const shrunk = (img: HTMLImageElement) => img.naturalWidth > img.clientWidth || img.naturalHeight > img.clientHeight
+
+/**
+ * Fit to the screen at first. A click shows it at its own size with the clicked pixel kept under the
+ * cursor, the lightbox scrolling to pan; another click fits it again. Mounted only while open, so
+ * every opening starts fitted.
+ */
+const ZoomableImage = ({ artifact }: { artifact: Artifact }) => {
+  const img = useRef<HTMLImageElement>(null)
+  const [zoom, setZoom] = useState<Anchor | null>(null)
+  const [zoomable, setZoomable] = useState(false)
+
+  useLayoutEffect(() => {
+    const box = img.current?.getBoundingClientRect()
+    if (zoom === null || box === undefined) return
+    img.current?.closest("[data-lightbox]")?.scrollBy({
+      left: box.left + zoom.fx * box.width - zoom.x,
+      top: box.top + zoom.fy * box.height - zoom.y,
+      behavior: "instant"
+    })
+  }, [zoom])
+
+  const toggle = (e: MouseEvent<HTMLImageElement>) => {
+    if (zoom !== null) return setZoom(null)
+    if (!shrunk(e.currentTarget)) return
+    const box = e.currentTarget.getBoundingClientRect()
+    setZoom({
+      fx: (e.clientX - box.left) / box.width,
+      fy: (e.clientY - box.top) / box.height,
+      x: e.clientX,
+      y: e.clientY
+    })
+  }
+
+  return (
+    <img
+      ref={img}
+      src={artifact.rawUrl}
+      alt={artifact.name}
+      onLoad={(e) => setZoomable(shrunk(e.currentTarget))}
+      onPointerEnter={(e) => zoom === null && setZoomable(shrunk(e.currentTarget))}
+      onClick={toggle}
+      className={`checkerboard ${
+        zoom !== null
+          ? "max-w-none cursor-zoom-out"
+          : `max-h-[calc(100dvh-3rem)] max-w-[calc(100vw-3rem)] ${zoomable ? "cursor-zoom-in" : ""}`
+      }`}
+    />
+  )
+}
+
+/** The original over the whole page. Esc, the close button, or a click beside the image closes it. */
+const lightboxScrollbar = overlayScrollbarWith(scrollbars("move", "os-theme-sloppa-cream"))
+
+const Lightbox = ({ artifact }: { artifact: Artifact }) => (
+  <Dialog.Portal>
+    <Dialog.Backdrop className="fixed inset-0 z-50 bg-ink/85 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+    <Dialog.Viewport className="fixed inset-0 z-50">
+      {/* OverlayScrollbars makes its frame position: relative and owns the scroller's padding: hence the layers. */}
+      <div className="size-full">
+        <div ref={lightboxScrollbar} data-lightbox className="size-full overflow-auto">
+          <div className="flex min-h-full w-max min-w-full p-6">
+            {/* Opacity only: a transform here would pin the close button to the popup, not the screen. */}
+            <Dialog.Popup className="m-auto outline-none transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0">
+              <Dialog.Title className="sr-only">{artifact.name}</Dialog.Title>
+              <ZoomableImage artifact={artifact} />
+              <Dialog.Close
+                render={
+                  <Button tone="cream" size="icon" aria-label="Close" className="fixed top-4 right-4">
+                    <XIcon size={18} />
+                  </Button>
+                }
+              />
+            </Dialog.Popup>
+          </div>
+        </div>
+      </div>
+    </Dialog.Viewport>
+  </Dialog.Portal>
+)
+
 /**
  * The thumbnail stands in until the original lands. The grid already fetched it, and it's cached for
- * good, so it's usually there at once; the original fades in over it.
+ * good, so it's usually there at once; the original fades in over it. Clicking opens the lightbox.
  */
 const ImagePreview = ({ artifact }: { artifact: Artifact }) => {
   const [loaded, setLoaded] = useState(false)
   return (
-    <a
-      href={artifact.rawUrl}
-      target="_blank"
-      rel="noreferrer"
-      className={`checkerboard relative aspect-4/3 p-4 ${STAGE}`}
-    >
-      {artifact.thumbUrl !== undefined && !loaded && (
+    <Dialog.Root>
+      <Dialog.Trigger
+        aria-label={`Enlarge ${artifact.name}`}
+        className={`checkerboard relative aspect-4/3 cursor-zoom-in p-4 ${STAGE}`}
+      >
+        {artifact.thumbUrl !== undefined && !loaded && (
+          <img
+            src={artifact.thumbUrl}
+            alt=""
+            aria-hidden
+            className="absolute inset-4 size-[calc(100%-2rem)] object-contain blur-[2px]"
+          />
+        )}
         <img
-          src={artifact.thumbUrl}
-          alt=""
-          aria-hidden
-          className="absolute inset-4 size-[calc(100%-2rem)] object-contain blur-[2px]"
+          // Already cached, the image may be complete before React would see its load event.
+          ref={(img) => {
+            if (img?.complete && img.naturalWidth > 0) setLoaded(true)
+          }}
+          src={artifact.rawUrl}
+          alt={artifact.name}
+          onLoad={() => setLoaded(true)}
+          className={`relative max-h-full max-w-full object-contain transition-opacity duration-200 ${
+            loaded ? "opacity-100" : "opacity-0"
+          }`}
         />
-      )}
-      <img
-        // Already cached, the image may be complete before React would see its load event.
-        ref={(img) => {
-          if (img?.complete && img.naturalWidth > 0) setLoaded(true)
-        }}
-        src={artifact.rawUrl}
-        alt={artifact.name}
-        onLoad={() => setLoaded(true)}
-        className={`relative max-h-full max-w-full object-contain transition-opacity duration-200 ${
-          loaded ? "opacity-100" : "opacity-0"
-        }`}
-      />
-    </a>
+      </Dialog.Trigger>
+      <Lightbox artifact={artifact} />
+    </Dialog.Root>
   )
 }
 

@@ -53,9 +53,15 @@ export const Login = ({ expired = false }: { expired?: boolean }) => {
       <div className="space-y-1">
         <p className="font-game text-2xl">{headline(status, expired)}</p>
         <p className="text-sm font-semibold text-ink/70">
-          {typeof status === "object"
-            ? `wait ${waitLabel(status.retryAfter)} before trying again.`
-            : "Shared links work without an account."}
+          {typeof status === "object" ? (
+            `wait ${waitLabel(status.retryAfter)} before trying again.`
+          ) : (
+            <>
+              sloppa doesn't know you... yet.
+              <br />
+              Shared links work without an account.
+            </>
+          )}
         </p>
       </div>
       <input
