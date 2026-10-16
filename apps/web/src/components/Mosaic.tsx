@@ -1,11 +1,11 @@
 import type { Artifact, ArtifactGroup } from "@sloppa/api"
 import { AnimatePresence, motion } from "motion/react"
 import { memo, type ReactNode } from "react"
-import { groupPagesAtom, NO_PR } from "../api.ts"
-import { formatAgoShort, prLabel } from "../format.ts"
+import { collectionPath, groupPagesAtom } from "../api.ts"
+import { formatAgoShort } from "../format.ts"
 import { onLinkClick } from "../router.ts"
 import { ItemCount, Paged, pop, Preview, skipOnceRendered } from "./Inventory.tsx"
-import { PrName } from "./ui.tsx"
+import { CollectionName } from "./ui.tsx"
 
 const MOSAIC = "grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
 
@@ -36,26 +36,24 @@ const Collage = ({ preview, count }: { preview: ReadonlyArray<Artifact>; count: 
 
 const TITLE = "font-game text-lg leading-tight"
 
-/** `owner/repo #42`; narrowed to one repo, every tile would repeat it, so just the number. */
-const ChestName = ({ group, repo }: { group: ArtifactGroup; repo: string }) => {
-  if (group.pr === undefined) return <span className={TITLE}>no PR</span>
-  if (repo === "")
-    return <PrName pr={group.pr} className="text-sm font-extrabold" numberClassName={`ml-1.5 ${TITLE}`} />
-  return <span className={`truncate ${TITLE}`}>{/#\d+$/.exec(prLabel(group.pr))?.[0] ?? prLabel(group.pr)}</span>
-}
+/** `owner/repo #42` keeps its number when it truncates; any other name gets the title type whole. */
+const ChestName = ({ collection }: { collection: string }) =>
+  /#\d+$/.test(collection) ? (
+    <CollectionName collection={collection} className="text-sm font-extrabold" />
+  ) : (
+    <span className={`truncate ${TITLE}`}>{collection}</span>
+  )
 
-/** A PR as a chest: a peek at its newest artifacts, opening onto all of them. */
-const Chest = memo(function Chest({ group, repo }: { group: ArtifactGroup; repo: string }) {
-  const params = new URLSearchParams(repo === "" ? {} : { repo })
-  params.set("pr", group.pr ?? NO_PR)
-  const path = `/?${params}`
+/** A collection as a chest: a peek at its newest artifacts, opening onto all of them. */
+const Chest = memo(function Chest({ group }: { group: ArtifactGroup }) {
+  const path = collectionPath(group.collection)
   const ago = formatAgoShort(group.lastUploadAt)
   return (
     <a href={path} onClick={onLinkClick(path)} className="pressable pressable-card block">
       <div className="pressable-face p-2.5">
         <Collage preview={group.preview} count={group.count} />
-        <p className="mt-2 flex px-0.5" title={group.pr}>
-          <ChestName group={group} repo={repo} />
+        <p className="mt-2 flex px-0.5" title={group.collection}>
+          <ChestName collection={group.collection} />
         </p>
         <div className="mt-1 flex items-center gap-2 px-0.5">
           <ItemCount count={group.count} />
@@ -84,10 +82,10 @@ const ChestsSkeleton = ({ count }: { count: number }) => (
   </div>
 )
 
-/** Every PR at a glance, most recently active first; a filter or search swaps in the flat list. */
-export const Mosaic = ({ repo, empty }: { repo: string; empty: ReactNode }) => (
+/** Every collection at a glance, most recently active first; a filter or search swaps in the flat list. */
+export const Mosaic = ({ empty }: { empty: ReactNode }) => (
   <Paged
-    atom={groupPagesAtom(repo)}
+    atom={groupPagesAtom}
     skeleton={<ChestsSkeleton count={8} />}
     more={<ChestsSkeleton count={4} />}
     empty={empty}
@@ -99,12 +97,12 @@ export const Mosaic = ({ repo, empty }: { repo: string; empty: ReactNode }) => (
             .flatMap((page) => page.items)
             .map((group) => (
               <motion.div
-                key={group.pr ?? NO_PR}
+                key={group.collection}
                 ref={skipOnceRendered}
                 {...pop}
                 className="offscreen-skip [--estimate:22rem]"
               >
-                <Chest group={group} repo={repo} />
+                <Chest group={group} />
               </motion.div>
             ))}
         </AnimatePresence>

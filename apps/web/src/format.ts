@@ -50,13 +50,7 @@ export const formatAgo = (date: DateTime.Utc, now = Date.now()) => {
 export const formatDate = (date: DateTime.Utc) =>
   DateTime.toDateUtc(date).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })
 
-/** `owner/repo#123` for GitHub PR URLs, the raw value otherwise. */
-export const prLabel = (pr: string) => {
-  const match = /github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/.exec(pr)
-  return match ? `${match[1]}#${match[2]}` : pr
-}
-
-export { markdownFor } from "@sloppa/api"
+export { pullRequestUrl } from "@sloppa/api"
 
 /** "now", "24m", "3h", "2d", "5mo", "1y" */
 export const formatAgoShort = (date: DateTime.Utc, now = Date.now()) => {

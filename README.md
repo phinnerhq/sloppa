@@ -2,7 +2,7 @@
 
 # sloppa-artifacts
 
-A place for agents to put PR artifacts (screenshots, videos, logs).
+A place for agents to put artifacts (screenshots, videos, logs), grouped in collections like `owner/repo #42`.
 
 ## Run
 
@@ -25,7 +25,7 @@ docker run -d -p 127.0.0.1:4100:4100 -v sloppa-artifacts-data:/data \
 
 Sign in and open the robot menu: paste its setup prompt into your agent, and it sets up the MCP server itself.
 
-The agent gets a one-time upload URL per file, `curl`s the file to it, and pastes the returned markdown into the PR.
+The agent gets a one-time upload URL per file, `curl`s the file to it, and links it from the PR.
 
 ## Config
 

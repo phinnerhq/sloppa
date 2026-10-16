@@ -4,7 +4,14 @@ import { type ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
 import { DateTime, Effect, Layer, Option, Predicate, Stream } from "effect"
 import { FetchHttpClient, type HttpClient } from "effect/http"
 import type { S3Config } from "./Config.ts"
-import { type ArtifactStorage, type PutInput, readAll, type StoredArtifact } from "./Storage.ts"
+import {
+  type ArtifactStorage,
+  legacyCollection,
+  type PutInput,
+  readAll,
+  skipUnreadable,
+  type StoredArtifact
+} from "./Storage.ts"
 
 const PREFIX = "artifacts/"
 const keyOf = (id: string) => `${PREFIX}${id}`
@@ -47,8 +54,9 @@ export const makeS3Storage = (s3: S3Config) =>
       size: head.ContentLength ?? 0,
       // S3's LastModified only has second precision; keep upload order exact.
       createdAt: DateTime.makeUnsafe(Number(head.Metadata?.["uploaded-at"]) || head.LastModified?.getTime() || 0),
-      repo: decodeMeta(head.Metadata?.["repo"]),
-      pr: decodeMeta(head.Metadata?.["pr"])
+      collection:
+        decodeMeta(head.Metadata?.["collection"]) ??
+        legacyCollection(decodeMeta(head.Metadata?.["repo"]), decodeMeta(head.Metadata?.["pr"]))
     })
 
     const head = Effect.fn("ArtifactStorage.head")(function* (id: ArtifactId) {
@@ -75,8 +83,7 @@ export const makeS3Storage = (s3: S3Config) =>
           Metadata: {
             name: encodeMeta(input.name),
             "uploaded-at": String(DateTime.toEpochMillis(uploadedAt)),
-            ...(input.repo === undefined ? {} : { repo: encodeMeta(input.repo) }),
-            ...(input.pr === undefined ? {} : { pr: encodeMeta(input.pr) })
+            collection: encodeMeta(input.collection)
           }
         })
       ).pipe(Effect.mapError(toStorageError))
@@ -110,7 +117,7 @@ export const makeS3Storage = (s3: S3Config) =>
       Stream.flatMap((page) => Stream.fromIterable(page.Contents ?? [])),
       Stream.map((object) => object.Key),
       Stream.filter(Predicate.isNotUndefined),
-      Stream.mapEffect((key) => head(key.slice(PREFIX.length) as ArtifactId).pipe(Effect.option), {
+      Stream.mapEffect((key) => head(key.slice(PREFIX.length) as ArtifactId).pipe(skipUnreadable), {
         concurrency: 16
       }),
       Stream.filter(Option.isSome),
@@ -122,7 +129,31 @@ export const makeS3Storage = (s3: S3Config) =>
       yield* run(S3.deleteObject({ Bucket, Key: keyOf(id) })).pipe(Effect.mapError(toStorageError))
     })
 
-    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove }
+    // S3 can't edit metadata in place: the object is copied onto itself with the new set.
+    const setCollection = Effect.fn("ArtifactStorage.setCollection")(function* (id: ArtifactId, collection: string) {
+      const artifact = yield* head(id)
+      const copied = yield* run(
+        S3.copyObject({
+          Bucket,
+          Key: keyOf(id),
+          CopySource: `${Bucket}/${keyOf(id)}`,
+          MetadataDirective: "REPLACE",
+          ContentType: artifact.contentType,
+          Metadata: {
+            name: encodeMeta(artifact.name),
+            "uploaded-at": String(DateTime.toEpochMillis(artifact.createdAt)),
+            collection: encodeMeta(collection)
+          }
+        })
+      ).pipe(Effect.mapError(toStorageError))
+      // S3 may answer a failed copy with a 200 carrying an error body: only a copy result means it worked.
+      if (copied.CopyObjectResult?.ETag === undefined) {
+        return yield* new StorageError({ message: `move ${id}: S3 didn't confirm the copy` })
+      }
+      return { ...artifact, collection }
+    })
+
+    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove, setCollection }
     return service
   }).pipe(
     Effect.provide(

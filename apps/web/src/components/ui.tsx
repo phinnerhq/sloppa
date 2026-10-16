@@ -9,7 +9,6 @@ import {
   useState
 } from "react"
 import { OverlayScrollbars, type PartialOptions } from "overlayscrollbars"
-import { prLabel } from "../format.ts"
 
 /** Overlay scrollbars, styled as `os-theme-sloppa`: they float over content, so nothing shifts when one appears. */
 export const scrollbars = (autoHide: "move" | "never"): PartialOptions => ({
@@ -185,12 +184,15 @@ export const ButtonLink = ({
 export const CopyButton = ({
   value,
   label,
+  icon,
   toast,
   tone,
   size
 }: {
   value: string
   label: string
+  /** Shown before the label. */
+  icon?: ReactNode
   toast: string
   tone?: Tone
   size?: PressableProps["size"]
@@ -202,6 +204,7 @@ export const CopyButton = ({
       size={size}
       onClick={() => void navigator.clipboard.writeText(value).then(() => showToast(toast))}
     >
+      {icon}
       {label}
     </Button>
   )
@@ -262,21 +265,21 @@ export const extensionOf = (name: string) => {
 }
 
 /**
- * `owner/repo#42` on one line that never loses the number. The rest truncates from its start
- * ("…hq/phinner.dev"), so the owner goes first and the end of the repo name, the most telling part,
- * stays longest. Other PR links truncate as they are.
+ * A collection's name on one line. One ending in a number, like `owner/repo #42`, never loses it: the
+ * rest truncates from its start ("…hq/phinner.dev"), so the owner goes first and the end of the repo
+ * name, the most telling part, stays longest. Other names truncate as they are.
  */
-export const PrName = ({
-  pr,
+export const CollectionName = ({
+  collection,
   className = "",
-  numberClassName = ""
+  numberClassName = "ml-1"
 }: {
-  pr: string
+  collection: string
   className?: string
   numberClassName?: string
 }) => {
-  const match = /^(.+\/.+)(#\d+)$/.exec(prLabel(pr))
-  if (match === null) return <span className={`truncate ${className}`}>{prLabel(pr)}</span>
+  const match = /^(.+?) ?(#\d+)$/.exec(collection)
+  if (match === null) return <span className={`truncate ${className}`}>{collection}</span>
   const [, repo, number] = match
   return (
     <span className={`flex min-w-0 items-baseline ${className}`}>

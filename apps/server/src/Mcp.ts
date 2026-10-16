@@ -3,35 +3,26 @@ import {
   ArtifactId,
   ArtifactNotFound,
   ArtifactPage,
-  markdownFor,
-  normalizePr,
-  PrSummary,
+  CollectionName,
+  CollectionSummary,
   rawPath,
-  RepoName,
   StorageError,
   viewerPath
 } from "@sloppa/api"
-import { DateTime, Effect, Layer, Schema } from "effect"
+import { DateTime, Effect, Layer, Option, Schema } from "effect"
 import { McpProtocol, McpServer, Tool, Toolkit } from "effect/ai"
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
-import { resolveContentType } from "./ContentType.ts"
 import { uploadOf } from "./Storage.ts"
 import { UploadTickets } from "./Tickets.ts"
 
-const Pr = Schema.String.annotate({
-  description: "The pull request: its URL, or owner/repo#42 for GitHub. The repo is inferred from it."
+const Collection = CollectionName.annotate({
+  description:
+    "Groups related files under one label, free-form. For a PR, use `owner/repo #42`; " +
+    "reuse the exact same label to add to a collection."
 })
-const Repo = RepoName.annotate({ description: "owner/repo, when there is no PR to infer it from." })
-
-const ArtifactResult = Schema.Struct({
-  ...Artifact.fields,
-  markdown: Schema.String.annotate({ description: "Paste this into the PR: images embed, other files link." })
-})
-
-// A plain copy is the point: the tool result is a struct, not an Artifact instance.
-// oxlint-disable-next-line typescript/no-misused-spread
-const withMarkdown = (artifact: Artifact) => ({ ...artifact, markdown: markdownFor(artifact) })
 
 const Failure = Schema.Union([ArtifactNotFound, StorageError])
 
@@ -39,13 +30,12 @@ const Failure = Schema.Union([ArtifactNotFound, StorageError])
 
 const RequestUpload = Tool.make("request_upload", {
   description:
-    "Get a one-time URL to upload a local file (screenshot, video, log, report...) as a PR artifact. " +
+    "Get a one-time URL to upload a local file (screenshot, video, log, report...) as an artifact. " +
     "Then run the returned `command` from the directory holding the file. The URL expires in 30 minutes. " +
-    "The links and markdown work as soon as the upload succeeds.",
+    "The links work as soon as the upload succeeds.",
   parameters: Schema.Struct({
     name: Schema.String.annotate({ description: "File name, with extension, e.g. checkout.png." }),
-    pr: Schema.optionalKey(Pr),
-    repo: Schema.optionalKey(Repo),
+    collection: Collection,
     contentType: Schema.optionalKey(
       Schema.String.annotate({ description: "MIME type; guessed from the extension when omitted." })
     )
@@ -56,8 +46,7 @@ const RequestUpload = Tool.make("request_upload", {
     uploadUrl: Schema.String,
     expiresAt: Schema.String,
     url: Schema.String,
-    rawUrl: Schema.String,
-    markdown: Schema.String
+    rawUrl: Schema.String
   })
 })
   .annotate(Tool.Title, "Request an upload URL")
@@ -71,11 +60,10 @@ const UploadText = Tool.make("upload_text", {
   parameters: Schema.Struct({
     name: Schema.String.annotate({ description: "File name, with extension, e.g. report.md." }),
     content: Schema.String,
-    pr: Schema.optionalKey(Pr),
-    repo: Schema.optionalKey(Repo),
+    collection: Collection,
     contentType: Schema.optionalKey(Schema.String)
   }),
-  success: ArtifactResult,
+  success: Artifact,
   failure: Failure
 })
   .annotate(Tool.Title, "Upload text")
@@ -83,12 +71,11 @@ const UploadText = Tool.make("upload_text", {
   .annotate(Tool.OpenWorld, false)
 
 const ListArtifacts = Tool.make("list_artifacts", {
-  description: "List artifacts, newest first, optionally for one repo or PR, or matching a search.",
+  description: "List artifacts, newest first, optionally in one collection, or matching a search.",
   parameters: Schema.Struct({
-    pr: Schema.optionalKey(Pr),
-    repo: Schema.optionalKey(Repo),
+    collection: Schema.optionalKey(Collection),
     search: Schema.optionalKey(
-      Schema.String.annotate({ description: "Part of the name, id, PR, repo or content type; case-insensitive." })
+      Schema.String.annotate({ description: "Part of the name, id, collection or content type; case-insensitive." })
     ),
     cursor: Schema.optionalKey(Schema.String.annotate({ description: "nextCursor from the previous page." })),
     limit: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })))
@@ -101,13 +88,13 @@ const ListArtifacts = Tool.make("list_artifacts", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false)
 
-const ListPullRequests = Tool.make("list_pull_requests", {
-  description: "Pull requests that have artifacts, with counts, most recently active first.",
-  parameters: Schema.Struct({ repo: Schema.optionalKey(Repo) }),
-  success: Schema.Struct({ items: Schema.Array(PrSummary) }),
+const ListCollections = Tool.make("list_collections", {
+  description: "Collections that have artifacts, with counts, most recently active first.",
+  parameters: Tool.EmptyParams,
+  success: Schema.Struct({ items: Schema.Array(CollectionSummary) }),
   failure: Failure
 })
-  .annotate(Tool.Title, "List pull requests")
+  .annotate(Tool.Title, "List collections")
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false)
@@ -115,11 +102,22 @@ const ListPullRequests = Tool.make("list_pull_requests", {
 const GetArtifact = Tool.make("get_artifact", {
   description: "Look up one artifact by id.",
   parameters: Schema.Struct({ id: ArtifactId }),
-  success: ArtifactResult,
+  success: Artifact,
   failure: Failure
 })
   .annotate(Tool.Title, "Get artifact")
   .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+
+const MoveArtifact = Tool.make("move_artifact", {
+  description: "File an artifact under another collection, e.g. to fix a mistyped label. Its links don't change.",
+  parameters: Schema.Struct({ id: ArtifactId, collection: Collection }),
+  success: Artifact,
+  failure: Failure
+})
+  .annotate(Tool.Title, "Move artifact")
+  .annotate(Tool.Idempotent, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false)
 
@@ -137,8 +135,9 @@ const ArtifactTools = Toolkit.make(
   RequestUpload,
   UploadText,
   ListArtifacts,
-  ListPullRequests,
+  ListCollections,
   GetArtifact,
+  MoveArtifact,
   DeleteArtifact
 )
 
@@ -149,50 +148,63 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
     const { publicUrl } = yield* AppConfig
 
     return {
-      request_upload: Effect.fn(function* ({ name, pr, repo, contentType }) {
+      request_upload: Effect.fn(function* ({ name, collection, contentType }) {
         const { token, ticket } = yield* tickets.issue({
           name,
-          ...(contentType === undefined ? {} : { contentType }),
-          ...(repo === undefined ? {} : { repo }),
-          ...(pr === undefined ? {} : { pr: normalizePr(pr) })
+          collection,
+          ...(contentType === undefined ? {} : { contentType })
         })
         const uploadUrl = `${publicUrl}/api/uploads/${token}`
-        const rawUrl = `${publicUrl}${rawPath(ticket.id, name)}`
         return {
           id: ticket.id,
           command: `curl -fsS --upload-file '${name.replaceAll("'", `'\\''`)}' '${uploadUrl}'`,
           uploadUrl,
           expiresAt: DateTime.formatIso(DateTime.makeUnsafe(ticket.exp)),
           url: `${publicUrl}${viewerPath(ticket.id)}`,
-          rawUrl,
-          markdown: markdownFor({ name, rawUrl, contentType: resolveContentType(name, contentType) })
+          rawUrl: `${publicUrl}${rawPath(ticket.id, name)}`
         }
       }),
-      upload_text: ({ name, content, pr, repo, contentType }) =>
-        artifacts
-          .upload({
-            name,
-            contentType: contentType ?? undefined,
-            body: uploadOf(new TextEncoder().encode(content)),
-            repo,
-            pr
-          })
-          .pipe(Effect.map(withMarkdown)),
-      list_artifacts: ({ pr, repo, search, cursor, limit }) =>
-        artifacts.list({ pr, repo, q: search, cursor, limit: limit ?? 30 }),
-      list_pull_requests: ({ repo }) => artifacts.prs(repo).pipe(Effect.map((items) => ({ items }))),
-      get_artifact: ({ id }) => artifacts.get(id).pipe(Effect.map(withMarkdown)),
+      upload_text: ({ name, content, collection, contentType }) =>
+        artifacts.upload({
+          name,
+          contentType: contentType ?? undefined,
+          body: uploadOf(new TextEncoder().encode(content)),
+          collection
+        }),
+      list_artifacts: ({ collection, search, cursor, limit }) =>
+        artifacts.list({ collection, q: search, cursor, limit: limit ?? 30 }),
+      list_collections: () => artifacts.collections.pipe(Effect.map((items) => ({ items }))),
+      get_artifact: ({ id }) => artifacts.get(id),
+      move_artifact: ({ id, collection }) => artifacts.move(id, collection),
       delete_artifact: ({ id }) => artifacts.remove(id).pipe(Effect.as({ deleted: id }))
     }
   })
 )
 
-const INSTRUCTIONS = `Stores PR artifacts (screenshots, recordings, logs, reports) and gives back stable links.
-To attach a local file: call request_upload, run its command, then put its markdown in the PR description or a comment.
+const INSTRUCTIONS = `Stores artifacts (screenshots, recordings, logs, reports) in collections and gives back stable links.
+To attach a local file: call request_upload, run its command, then link its rawUrl from the PR description or a comment.
 For text you already have in hand, upload_text does it in one call.
+Every upload goes in a collection: for a PR, name it \`owner/repo #42\`. move_artifact refiles one.
 Links are public to anyone holding them; listing needs this agent's token.`
 
-/** Streamable HTTP MCP at `/mcp`; agent token auth is installed by the router (see `Http.ts`). */
+/** The agent token check. It lives outside the typed API's security, so it's attached to the MCP routes themselves. */
+const AgentToken = HttpRouter.middleware(
+  Effect.gen(function* () {
+    const accounts = yield* Accounts
+    return (httpApp) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const token = /^Bearer +(\S+)$/i.exec(request.headers["authorization"] ?? "")?.[1]
+        if (token !== undefined && Option.isSome(yield* accounts.authenticate("agent", token))) return yield* httpApp
+        return HttpServerResponse.text("Missing or invalid token: set this agent up from the dashboard\n", {
+          status: 401,
+          headers: { "www-authenticate": "Bearer" }
+        })
+      })
+  })
+).layer
+
+/** Streamable HTTP MCP at `/mcp`, behind an agent token. */
 export const McpRoutes = McpServer.toolkit(ArtifactTools).pipe(
   Layer.provide(ArtifactToolHandlers),
   Layer.provide(
@@ -202,6 +214,6 @@ export const McpRoutes = McpServer.toolkit(ArtifactTools).pipe(
       instructions: INSTRUCTIONS,
       path: "/mcp",
       protocols: [McpProtocol.v2025_11_25, McpProtocol.v2025_06_18, McpProtocol.v2025_03_26]
-    })
+    }).pipe(Layer.provide(AgentToken))
   )
 )

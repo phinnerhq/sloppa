@@ -13,10 +13,15 @@ import {
 export const ArtifactId = Schema.String.pipe(Schema.check(Schema.isUUID()), Schema.brand("ArtifactId"))
 export type ArtifactId = typeof ArtifactId.Type
 
-/** `owner/name`, as on GitHub. */
-export const RepoName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[\w.-]+\/[\w.-]+$/, { message: "Expected owner/repo" }))
-)
+export const COLLECTION_MAX = 200
+/**
+ * A free-form label grouping related artifacts, picked by whoever uploads them. A PR's reads best as
+ * `owner/repo #42`, which the dashboard links to GitHub.
+ */
+export const CollectionName = Schema.Trimmed.check(Schema.isNonEmpty(), Schema.isMaxLength(COLLECTION_MAX))
+
+/** Where artifacts stored before collections, with neither a PR nor a repo, read back as. */
+export const UNKNOWN_COLLECTION = "unknown"
 
 export class Artifact extends Schema.Class<Artifact, { readonly brand: unique symbol }>("Artifact")({
   id: ArtifactId,
@@ -24,8 +29,7 @@ export class Artifact extends Schema.Class<Artifact, { readonly brand: unique sy
   contentType: Schema.String,
   size: Schema.Finite,
   createdAt: Schema.DateTimeUtcFromString,
-  repo: Schema.optionalKey(RepoName),
-  pr: Schema.optionalKey(Schema.String),
+  collection: Schema.String,
   /** Viewer page in the SPA. */
   url: Schema.String,
   /** The file itself, served inline. */
@@ -40,11 +44,9 @@ export class ArtifactPage extends Schema.Class<ArtifactPage, { readonly brand: u
   nextCursor: Schema.optionalKey(Schema.String)
 }) {}
 
-/** A PR's artifacts, or the ones filed under no PR, as one tile of the dashboard's mosaic. */
+/** A collection's artifacts, as one tile of the dashboard's mosaic. */
 export class ArtifactGroup extends Schema.Class<ArtifactGroup, { readonly brand: unique symbol }>("ArtifactGroup")({
-  /** Absent for the artifacts that have none. */
-  pr: Schema.optionalKey(Schema.String),
-  repo: Schema.optionalKey(RepoName),
+  collection: Schema.String,
   count: Schema.Int,
   lastUploadAt: Schema.DateTimeUtcFromString,
   /** The newest few, to show what's inside. */
@@ -57,15 +59,10 @@ export class GroupPage extends Schema.Class<GroupPage, { readonly brand: unique 
   nextCursor: Schema.optionalKey(Schema.String)
 }) {}
 
-export class RepoSummary extends Schema.Class<RepoSummary, { readonly brand: unique symbol }>("RepoSummary")({
-  repo: RepoName,
-  count: Schema.Int,
-  lastUploadAt: Schema.DateTimeUtcFromString
-}) {}
-
-export class PrSummary extends Schema.Class<PrSummary, { readonly brand: unique symbol }>("PrSummary")({
-  pr: Schema.String,
-  repo: Schema.optionalKey(RepoName),
+export class CollectionSummary extends Schema.Class<CollectionSummary, { readonly brand: unique symbol }>(
+  "CollectionSummary"
+)({
+  collection: Schema.String,
   count: Schema.Int,
   lastUploadAt: Schema.DateTimeUtcFromString
 }) {}
@@ -163,6 +160,23 @@ export class Authorization extends HttpApiMiddleware.Service<
   error: Unauthorized
 }) {}
 
+/**
+ * A signed-in browser's cookie only. Managing agents takes a person: a leaked agent token mustn't be
+ * able to mint itself replacements before it's revoked.
+ *
+ * @effect-expect-leaking HttpServerRequest | ParsedSearchParams | RouteContext
+ */
+export class SessionAuthorization extends HttpApiMiddleware.Service<
+  SessionAuthorization,
+  {
+    provides: CurrentUser
+    requires: never
+  }
+>()("sloppa/api/SessionAuthorization", {
+  security: { session: sessionCookie },
+  error: Unauthorized
+}) {}
+
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 export const PAGE_SIZE = 60
@@ -173,31 +187,23 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
   .add(
     HttpApiEndpoint.get("list", "/api/artifacts", {
       query: {
-        repo: Schema.optional(RepoName),
-        pr: Schema.optional(Schema.String),
-        /** Only the artifacts filed under no PR. */
-        noPr: Schema.optional(Schema.Literal("true")),
-        /** Matches name, id, PR, repo or content type, case-insensitively. */
+        collection: Schema.optional(Schema.String),
+        /** Matches name, id, collection or content type, case-insensitively. */
         q: Schema.optional(Schema.String),
         cursor: Schema.optional(Schema.String),
         limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 200 })))
       },
       success: ArtifactPage
     }).middleware(Authorization),
-    HttpApiEndpoint.get("groups", "/api/groups", {
+    HttpApiEndpoint.get("mosaic", "/api/collections/mosaic", {
       query: {
-        repo: Schema.optional(RepoName),
         cursor: Schema.optional(Schema.String),
         limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 })))
       },
       success: GroupPage
     }).middleware(Authorization),
-    HttpApiEndpoint.get("repos", "/api/repos", {
-      success: Schema.Array(RepoSummary)
-    }).middleware(Authorization),
-    HttpApiEndpoint.get("prs", "/api/prs", {
-      query: { repo: Schema.optional(RepoName) },
-      success: Schema.Array(PrSummary)
+    HttpApiEndpoint.get("collections", "/api/collections", {
+      success: Schema.Array(CollectionSummary)
     }).middleware(Authorization),
     HttpApiEndpoint.get("stats", "/api/stats", {
       success: Stats
@@ -210,10 +216,8 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
     HttpApiEndpoint.post("upload", "/api/artifacts", {
       payload: Schema.Struct({
         files: Multipart.FilesSchema,
-        /** Inferred from a GitHub `pr` when omitted. */
-        repo: Schema.optional(RepoName),
-        /** A pull request URL, or `owner/repo#42` for GitHub. */
-        pr: Schema.optional(Schema.String)
+        /** Filed under this collection, e.g. `owner/repo #42`. */
+        collection: CollectionName
       }).pipe(
         HttpApiSchema.asMultipart({
           maxFileSize: MAX_UPLOAD_BYTES,
@@ -223,6 +227,12 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
       ),
       success: Schema.Array(Artifact),
       error: StorageError
+    }).middleware(Authorization),
+    HttpApiEndpoint.patch("move", "/api/artifacts/:id", {
+      params: { id: ArtifactId },
+      payload: Schema.Struct({ collection: CollectionName }),
+      success: Artifact,
+      error: [ArtifactNotFound, StorageError]
     }).middleware(Authorization),
     HttpApiEndpoint.delete("delete", "/api/artifacts/:id", {
       params: { id: ArtifactId },
@@ -235,7 +245,11 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
 export class SessionGroup extends HttpApiGroup.make("session")
   .add(
     HttpApiEndpoint.post("login", "/api/session", {
-      payload: Schema.Struct({ username: Schema.String, password: Schema.String }),
+      // Bounded, so a login can't make the throttle hold on to a huge username.
+      payload: Schema.Struct({
+        username: Schema.String.check(Schema.isMaxLength(200)),
+        password: Schema.String.check(Schema.isMaxLength(1024))
+      }),
       success: User,
       error: [InvalidCredentials, TooManyAttempts]
     }),
@@ -246,38 +260,39 @@ export class SessionGroup extends HttpApiGroup.make("session")
 
 export class AgentsGroup extends HttpApiGroup.make("agents")
   .add(
-    HttpApiEndpoint.get("list", "/api/agents", { success: Schema.Array(Agent) }).middleware(Authorization),
+    HttpApiEndpoint.get("list", "/api/agents", { success: Schema.Array(Agent) }).middleware(SessionAuthorization),
     HttpApiEndpoint.post("create", "/api/agents", {
       payload: Schema.Struct({ name: AgentName }),
       success: CreatedAgent
-    }).middleware(Authorization),
+    }).middleware(SessionAuthorization),
     HttpApiEndpoint.delete("revoke", "/api/agents/:id", {
       params: { id: Schema.String },
       success: HttpApiSchema.NoContent
-    }).middleware(Authorization),
+    }).middleware(SessionAuthorization),
     HttpApiEndpoint.patch("rename", "/api/agents/:id", {
       params: { id: Schema.String },
       payload: Schema.Struct({ name: AgentName }),
       success: HttpApiSchema.NoContent
-    }).middleware(Authorization),
-    HttpApiEndpoint.post("createSetup", "/api/setup-links", { success: SetupLink }).middleware(Authorization),
+    }).middleware(SessionAuthorization),
+    HttpApiEndpoint.post("createSetup", "/api/setup-links", { success: SetupLink }).middleware(SessionAuthorization),
     HttpApiEndpoint.delete("revokeSetup", "/api/setup-links/:id", {
       params: { id: Schema.String },
       success: HttpApiSchema.NoContent
-    }).middleware(Authorization)
+    }).middleware(SessionAuthorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Agents" })) {}
 
-/** `owner/repo` of a GitHub pull request URL. */
-export const repoOfPr = (pr: string): string | undefined => {
-  const match = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/\d+/.exec(pr)
-  return match?.[1]
+/** `owner/repo #42`, the label for a GitHub PR, from its URL; anything else is kept as it is. */
+export const collectionOfPr = (pr: string): string => {
+  const match = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(pr.trim())
+  return match ? `${match[1]} #${match[2]}` : pr.trim()
 }
 
-/** `owner/repo#42` becomes the PR's GitHub URL; URLs and anything else pass through. */
-export const normalizePr = (pr: string): string => {
-  const match = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(pr.trim())
-  return match ? `https://github.com/${match[1]}/pull/${match[2]}` : pr.trim()
+/** Where a collection named after a GitHub PR (`owner/repo #42`, or its URL) points, if it is one. */
+export const pullRequestUrl = (collection: string): string | undefined => {
+  const match = /^([\w.-]+\/[\w.-]+) ?#(\d+)$/.exec(collection)
+  if (match) return `https://github.com/${match[1]}/pull/${match[2]}`
+  return /^https?:\/\//.test(collection) ? collection : undefined
 }
 
 export class Api extends HttpApi.make("sloppa-artifacts")
@@ -293,13 +308,3 @@ export const setupPath = (code: string) => `/setup/${code}`
 export const rawPath = (id: string, name: string) => `/f/${id}/${encodeURIComponent(name)}`
 export const thumbPath = (id: string) => `/t/${id}`
 export const viewerPath = (id: string) => `/a/${id}`
-
-/** Ready to paste into a PR: images embed, everything else links. */
-export const markdownFor = (artifact: {
-  readonly name: string
-  readonly contentType: string
-  readonly rawUrl: string
-}) =>
-  artifact.contentType.startsWith("image/")
-    ? `![${artifact.name}](${artifact.rawUrl})`
-    : `[${artifact.name}](${artifact.rawUrl})`

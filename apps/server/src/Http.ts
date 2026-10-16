@@ -9,6 +9,7 @@ import {
   PAGE_SIZE,
   SESSION_COOKIE,
   sessionCookie,
+  SessionAuthorization,
   SetupLink,
   setupPath,
   StorageError,
@@ -16,7 +17,7 @@ import {
   User
 } from "@sloppa/api"
 import { DateTime, Effect, FileSystem, Layer, Option, Redacted, Schema, Stream } from "effect"
-import { HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/http"
+import { HttpMiddleware, HttpRouter, HttpServerRequest, HttpServerResponse, HttpStaticServer } from "effect/http"
 import { HttpApiBuilder } from "effect/http-api"
 import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
@@ -27,27 +28,49 @@ import { ArtifactStorage, uploadOf } from "./Storage.ts"
 import { Thumbnails } from "./Thumbnails.ts"
 import { UploadTickets } from "./Tickets.ts"
 
+/** Who holds a credential, or Unauthorized with `message`. */
+const holderOf =
+  (accounts: Accounts["Service"]) =>
+  (kind: "session" | "agent", credential: Redacted.Redacted<string>, message: string) =>
+    (Redacted.value(credential) === ""
+      ? Effect.succeedNone
+      : accounts.authenticate(kind, Redacted.value(credential))
+    ).pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.fail(new Unauthorized({ message })),
+          onSome: Effect.succeed
+        })
+      )
+    )
+
 const AuthorizationLive = Layer.effect(
   Authorization,
   Effect.gen(function* () {
-    const accounts = yield* Accounts
-    const holder = (kind: "session" | "agent", credential: Redacted.Redacted<string>) =>
-      (Redacted.value(credential) === ""
-        ? Effect.succeedNone
-        : accounts.authenticate(kind, Redacted.value(credential))
-      ).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.fail(new Unauthorized({ message: "Sign in, or pass an agent token" })),
-            onSome: Effect.succeed
-          })
-        )
-      )
+    const holder = holderOf(yield* Accounts)
+    const message = "Sign in, or pass an agent token"
     return Authorization.of({
       session: (httpEffect, { credential }) =>
-        Effect.flatMap(holder("session", credential), (user) => Effect.provideService(httpEffect, CurrentUser, user)),
+        Effect.flatMap(holder("session", credential, message), (user) =>
+          Effect.provideService(httpEffect, CurrentUser, user)
+        ),
       bearer: (httpEffect, { credential }) =>
-        Effect.flatMap(holder("agent", credential), (user) => Effect.provideService(httpEffect, CurrentUser, user))
+        Effect.flatMap(holder("agent", credential, message), (user) =>
+          Effect.provideService(httpEffect, CurrentUser, user)
+        )
+    })
+  })
+)
+
+const SessionAuthorizationLive = Layer.effect(
+  SessionAuthorization,
+  Effect.gen(function* () {
+    const holder = holderOf(yield* Accounts)
+    return SessionAuthorization.of({
+      session: (httpEffect, { credential }) =>
+        Effect.flatMap(holder("session", credential, "Sign in to manage agents"), (user) =>
+          Effect.provideService(httpEffect, CurrentUser, user)
+        )
     })
   })
 )
@@ -146,12 +169,10 @@ const ArtifactsHandlers = HttpApiBuilder.group(
         Effect.mapError((cause) => new StorageError({ message: `read upload: ${cause.message}` }))
       )
     return handlers.handleAll({
-      list: ({ query: { noPr, ...query } }) =>
-        artifacts.list({ ...query, noPr: noPr === "true", limit: query.limit ?? PAGE_SIZE }),
-      groups: ({ query }) => artifacts.groups({ ...query, limit: query.limit ?? GROUP_PAGE_SIZE }),
+      list: ({ query }) => artifacts.list({ ...query, limit: query.limit ?? PAGE_SIZE }),
+      mosaic: ({ query }) => artifacts.mosaic({ ...query, limit: query.limit ?? GROUP_PAGE_SIZE }),
       stats: () => artifacts.stats,
-      prs: ({ query }) => artifacts.prs(query.repo),
-      repos: () => artifacts.repos,
+      collections: () => artifacts.collections,
       get: ({ params }) => artifacts.get(params.id),
       upload: ({ payload }) =>
         Effect.forEach(payload.files, (file) =>
@@ -161,12 +182,12 @@ const ArtifactsHandlers = HttpApiBuilder.group(
                 name: file.name,
                 contentType: file.contentType,
                 body,
-                repo: payload.repo,
-                pr: payload.pr
+                collection: payload.collection
               })
             )
           )
         ),
+      move: ({ params, payload }) => artifacts.move(params.id, payload.collection),
       delete: ({ params }) => artifacts.remove(params.id)
     })
   })
@@ -260,6 +281,22 @@ const ThumbnailRoute = Layer.effectDiscard(
 )
 
 /**
+ * The request log, naming `path` instead of the real one: these routes carry a secret in theirs.
+ * Provided to a route's layer, it applies to that route alone.
+ */
+export const logAs = (path: string) =>
+  HttpRouter.middleware((httpApp) =>
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest
+      const response = yield* HttpMiddleware.withLoggerDisabled(httpApp)
+      yield* Effect.log("Sent HTTP response").pipe(
+        Effect.annotateLogs({ "http.method": request.method, "http.url": path, "http.status": response.status })
+      )
+      return response
+    })
+  ).layer
+
+/**
  * `curl -T file <url>` target for upload tickets handed out by the MCP server.
  * The signed ticket is the credential, so this route takes no bearer token.
  */
@@ -280,18 +317,20 @@ const TicketUploadRoute = Layer.effectDiscard(
         if (Option.isNone(ticket)) {
           return HttpServerResponse.text("Invalid or expired upload URL, ask for a new one\n", { status: 403 })
         }
-        if (yield* artifacts.exists(ticket.value.id)) {
+        // The claim covers this process; the existence check, a ticket used before a restart.
+        if (!(yield* tickets.claim(ticket.value)) || (yield* artifacts.exists(ticket.value.id))) {
           return HttpServerResponse.text("This upload URL was already used, ask for a new one\n", { status: 409 })
         }
-        const body = uploadOf(new Uint8Array(yield* request.arrayBuffer))
-        const artifact = yield* artifacts.upload({
-          id: ticket.value.id,
-          name: ticket.value.name,
-          contentType: ticket.value.contentType ?? request.headers["content-type"],
-          body,
-          repo: ticket.value.repo,
-          pr: ticket.value.pr
-        })
+        const artifact = yield* Effect.gen(function* () {
+          const body = uploadOf(new Uint8Array(yield* request.arrayBuffer))
+          return yield* artifacts.upload({
+            id: ticket.value.id,
+            name: ticket.value.name,
+            contentType: ticket.value.contentType ?? request.headers["content-type"],
+            body,
+            collection: ticket.value.collection
+          })
+        }).pipe(Effect.onError(() => tickets.release(ticket.value)))
         return yield* HttpServerResponse.json({ id: artifact.id, url: artifact.url, rawUrl: artifact.rawUrl })
       }).pipe(
         Effect.catchTags({
@@ -300,26 +339,6 @@ const TicketUploadRoute = Layer.effectDiscard(
           HttpBodyError: () => Effect.succeed(HttpServerResponse.text("Bad response\n", { status: 500 }))
         })
       )
-    )
-  })
-)
-
-/** The MCP endpoint lives outside the typed API, so it gets the agent token check here. */
-const McpAuthorization = HttpRouter.use(
-  Effect.fn(function* (router) {
-    const accounts = yield* Accounts
-    yield* router.addGlobalMiddleware((httpApp) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest
-        const path = new URL(request.url, "http://local").pathname
-        if (path !== "/mcp" && !path.startsWith("/mcp/")) return yield* httpApp
-        const token = /^Bearer +(\S+)$/i.exec(request.headers["authorization"] ?? "")?.[1]
-        if (token !== undefined && Option.isSome(yield* accounts.authenticate("agent", token))) return yield* httpApp
-        return HttpServerResponse.text("Missing or invalid token: set this agent up from the dashboard\n", {
-          status: 401,
-          headers: { "www-authenticate": "Bearer" }
-        })
-      })
     )
   })
 )
@@ -334,13 +353,12 @@ const StaticFiles = Layer.unwrap(
 export const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/api/openapi.json" }).pipe(
     Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers)),
-    Layer.provide(AuthorizationLive)
+    Layer.provide(Layer.mergeAll(AuthorizationLive, SessionAuthorizationLive))
   ),
   RawFileRoute,
   ThumbnailRoute,
-  TicketUploadRoute,
+  TicketUploadRoute.pipe(Layer.provide(logAs("/api/uploads/<ticket>"))),
   McpRoutes,
-  McpAuthorization,
-  SetupRoute,
+  SetupRoute.pipe(Layer.provide(logAs("/setup/<code>"))),
   StaticFiles
 ).pipe(Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer)), Layer.provideMerge(Accounts.layer))

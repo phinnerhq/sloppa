@@ -138,6 +138,10 @@
 
   .game-btn > .pressable-face {
     @apply flex items-center justify-center gap-2 px-4 py-2 font-game text-[15px] tracking-wide whitespace-nowrap;
+    /* In a tight button the label gives, never the icon. */
+    & > svg {
+      flex-shrink: 0;
+    }
   }
   .game-btn-sm > .pressable-face {
     @apply px-3 py-1 text-sm;
@@ -188,11 +192,15 @@
     --gloss: rgb(255 255 255 / 0.2);
   }
 
-  /* Text fields keep their raised look when focused: the gold ring sits inside the outline, above the shadow. */
+  /*
+   * Text fields keep their raised look when focused: the gold ring sits inside the outline, above the shadow.
+   * A box holding the input (the search bar, with its chips) lights up the same way.
+   */
   .game-field {
     @apply transition-[background-color,box-shadow] duration-100 focus:outline-none;
     &:focus,
-    &:focus-visible {
+    &:focus-visible,
+    &:focus-within {
       box-shadow:
         inset 0 0 0 3px var(--color-gold),
         0 4px 0 var(--color-ink);
@@ -220,11 +228,7 @@
     text-shadow: var(--title-outline);
   }
 
-  /* The dropdowns' trigger, dressed as a panel (see Select in ArtifactList.tsx). */
-  .game-select {
-    @apply flex w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl border-[3px] border-ink bg-cream py-2.5 pr-4 pl-4 text-left font-bold tracking-[0.03em] text-ink shadow-[0_4px_0_var(--color-ink)] transition-colors select-none hover:bg-white data-popup-open:bg-white;
-  }
-  /* Its popup: a panel that pops out of the trigger. */
+  /* A popup list: a panel that pops out of its field. */
   .game-picker {
     /* As wide as its longest option, within reason: past that, options truncate (PRs keep their number). */
     @apply max-w-[min(26rem,var(--available-width))] min-w-(--anchor-width) rounded-xl border-[3px] border-ink bg-cream shadow-[0_5px_0_var(--color-ink)] outline-none;

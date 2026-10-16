@@ -1,6 +1,12 @@
 import { type ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
 import { DateTime, Effect, FileSystem, Option, Path, PlatformError, Schema, Stream } from "effect"
-import type { ArtifactStorage, PutInput, StoredArtifact } from "./Storage.ts"
+import {
+  type ArtifactStorage,
+  legacyCollection,
+  type PutInput,
+  skipUnreadable,
+  type StoredArtifact
+} from "./Storage.ts"
 
 /** Sidecar written next to each file: everything S3 would keep as object metadata. */
 const Meta = Schema.Struct({
@@ -8,6 +14,8 @@ const Meta = Schema.Struct({
   contentType: Schema.String,
   size: Schema.Finite,
   createdMs: Schema.Finite,
+  collection: Schema.optionalKey(Schema.String),
+  /** Written before collections; read only. */
   repo: Schema.optionalKey(Schema.String),
   pr: Schema.optionalKey(Schema.String)
 })
@@ -68,11 +76,23 @@ export const makeFsStorage = (dir: string) =>
         contentType: meta.contentType,
         size: meta.size,
         createdAt: DateTime.makeUnsafe(meta.createdMs),
-        repo: meta.repo,
-        pr: meta.pr
+        collection: meta.collection ?? legacyCollection(meta.repo, meta.pr)
       }
       return artifact
     })
+
+    /**
+     * Swaps a sidecar in whole, so a reader sees the old one or the new one, never half of one. Each
+     * write gets its own temp file: two at once (moves racing) can't interleave in a shared one.
+     */
+    const writeMeta = (id: ArtifactId, meta: string) => {
+      const tmp = `${metaOf(id)}.${crypto.randomUUID()}.tmp`
+      return fs.writeFileString(tmp, meta).pipe(
+        Effect.andThen(fs.rename(tmp, metaOf(id))),
+        Effect.onError(() => fs.remove(tmp).pipe(Effect.ignore)),
+        storageError("write metadata")
+      )
+    }
 
     const put = Effect.fn("FsStorage.put")(function* (input: PutInput) {
       const id = input.id ?? (crypto.randomUUID() as ArtifactId)
@@ -82,14 +102,12 @@ export const makeFsStorage = (dir: string) =>
         contentType: input.contentType,
         size: input.body.size,
         createdMs,
-        ...(input.repo === undefined ? {} : { repo: input.repo }),
-        ...(input.pr === undefined ? {} : { pr: input.pr })
+        collection: input.collection
       }).pipe(Effect.orDie)
       // Bytes first, metadata last: an artifact exists once its sidecar does. The body is streamed to disk,
       // never buffered whole.
       yield* input.body.stream.pipe(Stream.run(fs.sink(fileOf(id))), storageError("write artifact"))
-      yield* fs.writeFileString(`${metaOf(id)}.tmp`, meta).pipe(storageError("write metadata"))
-      yield* fs.rename(`${metaOf(id)}.tmp`, metaOf(id)).pipe(storageError("write metadata"))
+      yield* writeMeta(id, meta)
       return yield* head(id).pipe(Effect.catchTag("ArtifactNotFound", Effect.die))
     })
 
@@ -109,7 +127,7 @@ export const makeFsStorage = (dir: string) =>
 
     const scan = Stream.fromIterableEffect(fs.readDirectory(dir).pipe(storageError("list storage dir"))).pipe(
       Stream.filter((entry) => entry.endsWith(".json") && UUID.test(entry.slice(0, -5))),
-      Stream.mapEffect((entry) => head(entry.slice(0, -5) as ArtifactId).pipe(Effect.option), { concurrency: 16 }),
+      Stream.mapEffect((entry) => head(entry.slice(0, -5) as ArtifactId).pipe(skipUnreadable), { concurrency: 16 }),
       Stream.filter(Option.isSome),
       Stream.map((found) => found.value)
     )
@@ -121,6 +139,19 @@ export const makeFsStorage = (dir: string) =>
       }).pipe(storageError("delete artifact"))
     })
 
-    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove }
+    const setCollection = Effect.fn("FsStorage.setCollection")(function* (id: ArtifactId, collection: string) {
+      const artifact = yield* head(id)
+      const meta = yield* encodeMeta({
+        name: artifact.name,
+        contentType: artifact.contentType,
+        size: artifact.size,
+        createdMs: DateTime.toEpochMillis(artifact.createdAt),
+        collection
+      }).pipe(Effect.orDie)
+      yield* writeMeta(id, meta)
+      return { ...artifact, collection }
+    })
+
+    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove, setCollection }
     return service
   })

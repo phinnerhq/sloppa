@@ -1,5 +1,11 @@
-import type { ArtifactId, ArtifactNotFound, StorageError } from "@sloppa/api"
-import { Context, type DateTime, Effect, Layer, Path, Stream } from "effect"
+import {
+  type ArtifactId,
+  type ArtifactNotFound,
+  collectionOfPr,
+  type StorageError,
+  UNKNOWN_COLLECTION
+} from "@sloppa/api"
+import { Context, type DateTime, Effect, Layer, Option, Path, Stream } from "effect"
 import { AppConfig } from "./Config.ts"
 import { makeFsStorage } from "./FsStorage.ts"
 import { makeS3Storage } from "./S3Storage.ts"
@@ -10,9 +16,15 @@ export interface StoredArtifact {
   readonly contentType: string
   readonly size: number
   readonly createdAt: DateTime.Utc
-  readonly repo: string | undefined
-  readonly pr: string | undefined
+  readonly collection: string
 }
+
+/**
+ * Artifacts stored before collections were filed under a PR and its repo: they read back as the PR's
+ * label, so they land with the ones uploaded since, or in `unknown` without either.
+ */
+export const legacyCollection = (repo: string | undefined, pr: string | undefined) =>
+  pr === undefined ? (repo ?? UNKNOWN_COLLECTION) : collectionOfPr(pr)
 
 /**
  * An upload's bytes, streamed, with the size known up front. The filesystem backend writes the stream
@@ -46,8 +58,7 @@ export interface PutInput {
   readonly name: string
   readonly contentType: string
   readonly body: Upload
-  readonly repo: string | undefined
-  readonly pr: string | undefined
+  readonly collection: string
 }
 
 export interface ReadResult {
@@ -61,7 +72,7 @@ export interface ReadResult {
 /**
  * Where the files live: an S3 bucket in production, plain files under
  * `DATA_DIR` otherwise. Each artifact is keyed by its UUID alone, with name,
- * repo, PR and upload time stored next to it, so the storage stays the source
+ * collection and upload time stored next to it, so the storage stays the source
  * of truth and the SQLite index can always be rebuilt from it (see `ArtifactIndex`).
  */
 export class ArtifactStorage extends Context.Service<
@@ -73,6 +84,11 @@ export class ArtifactStorage extends Context.Service<
     /** Every stored artifact: for rebuilding the index only. */
     readonly scan: Stream.Stream<StoredArtifact, StorageError>
     readonly remove: (id: ArtifactId) => Effect.Effect<void, ArtifactNotFound | StorageError>
+    /** Files it under another collection; the bytes, id and links stay as they are. */
+    readonly setCollection: (
+      id: ArtifactId,
+      collection: string
+    ) => Effect.Effect<StoredArtifact, ArtifactNotFound | StorageError>
   }
 >()("sloppa/server/ArtifactStorage") {
   /** S3 when `S3_ENDPOINT` is set, the local filesystem otherwise. */
@@ -89,3 +105,19 @@ export class ArtifactStorage extends Context.Service<
     })
   )
 }
+
+/**
+ * For scans: an artifact deleted mid-scan is skipped quietly, one that can't be read is skipped with a
+ * warning, so a single bad file doesn't keep the rest from being indexed.
+ */
+export const skipUnreadable = <E extends ArtifactNotFound | StorageError, R>(
+  head: Effect.Effect<StoredArtifact, E, R>
+): Effect.Effect<Option.Option<StoredArtifact>, never, R> =>
+  head.pipe(
+    Effect.asSome,
+    Effect.catch((error) =>
+      error._tag === "ArtifactNotFound"
+        ? Effect.succeedNone
+        : Effect.logWarning(`Skipped an unreadable artifact: ${error.message}`).pipe(Effect.as(Option.none()))
+    )
+  )

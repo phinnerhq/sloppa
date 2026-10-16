@@ -37,7 +37,8 @@ const ARTIFACTS_KEY = ["artifacts"]
 /** How long the list's data survives leaving the page, so coming back shows it at once (then revalidates). */
 const LIST_CACHE = "5 minutes"
 
-export const reposAtom = ApiClient.query("artifacts", "repos", {
+/** Collections that have artifacts, newest activity first. */
+export const collectionsAtom = ApiClient.query("artifacts", "collections", {
   reactivityKeys: ARTIFACTS_KEY,
   timeToLive: LIST_CACHE
 })
@@ -47,22 +48,9 @@ export const statsAtom = ApiClient.query("artifacts", "stats", {
   timeToLive: LIST_CACHE
 })
 
-/** PRs that have artifacts, newest activity first; "" for every repo. */
-export const prsAtom = Atom.family((repo: string) =>
-  ApiClient.query("artifacts", "prs", {
-    query: repo === "" ? {} : { repo },
-    reactivityKeys: ARTIFACTS_KEY,
-    timeToLive: LIST_CACHE
-  })
-)
-
-/** The `pr` filter for the artifacts filed under none. */
-export const NO_PR = "none"
-
 export interface ListFilter {
-  readonly repo: string
-  /** A PR, `NO_PR`, or "" for all of them. */
-  readonly pr: string
+  /** "" for all of them. */
+  readonly collection: string
   /** Searched on the server, so it reaches artifacts that aren't loaded yet. */
   readonly search: string
 }
@@ -88,13 +76,12 @@ const cursorQuery = (cursor: string | undefined) => (cursor === undefined ? {} :
 
 /** Newest first. Keyed by a string so equal filters share one atom. */
 const pagesFamily = Atom.family((key: string) => {
-  const { repo, pr, search } = JSON.parse(key) as ListFilter
+  const { collection, search } = JSON.parse(key) as ListFilter
   return paged((client, cursor) =>
     client.artifacts.list({
       query: {
         limit: PAGE_SIZE,
-        ...(repo === "" ? {} : { repo }),
-        ...(pr === "" ? {} : pr === NO_PR ? { noPr: "true" as const } : { pr }),
+        ...(collection === "" ? {} : { collection }),
         ...(search === "" ? {} : { q: search }),
         ...cursorQuery(cursor)
       }
@@ -103,19 +90,19 @@ const pagesFamily = Atom.family((key: string) => {
 })
 
 export const artifactPagesAtom = (filter: ListFilter) =>
-  pagesFamily(JSON.stringify({ repo: filter.repo, pr: filter.pr, search: filter.search.trim() }))
+  pagesFamily(JSON.stringify({ collection: filter.collection, search: filter.search.trim() }))
 
-/** The mosaic: a tile per PR, most recently active first; "" for every repo. */
-export const groupPagesAtom = Atom.family((repo: string) =>
-  paged((client, cursor) =>
-    client.artifacts.groups({
-      query: { limit: GROUP_PAGE_SIZE, ...(repo === "" ? {} : { repo }), ...cursorQuery(cursor) }
-    })
-  )
+/** The mosaic: a tile per collection, most recently active first. */
+export const groupPagesAtom = paged((client, cursor) =>
+  client.artifacts.mosaic({ query: { limit: GROUP_PAGE_SIZE, ...cursorQuery(cursor) } })
 )
 
+/** Where the dashboard lists a collection's artifacts. */
+export const collectionPath = (collection: string) => `/?${new URLSearchParams({ collection })}`
+
 export const artifactAtom = Atom.family((id: ArtifactId) =>
-  ApiClient.query("artifacts", "get", { params: { id }, timeToLive: "5 minutes" })
+  // Under the artifacts key too, so a delete drops the cached copy instead of showing it on Back.
+  ApiClient.query("artifacts", "get", { params: { id }, timeToLive: "5 minutes", reactivityKeys: ARTIFACTS_KEY })
 )
 
 export const deleteArtifactAtom = ApiClient.mutation("artifacts", "delete")

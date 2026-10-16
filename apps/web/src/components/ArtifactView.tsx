@@ -1,14 +1,29 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { ArrowLeftIcon } from "@phosphor-icons/react"
+import {
+  ArrowLeftIcon,
+  ArrowSquareOutIcon,
+  BrowserIcon,
+  CircleNotchIcon,
+  LinkIcon,
+  DownloadSimpleIcon,
+  TrashIcon
+} from "@phosphor-icons/react"
 import { type Artifact, ArtifactId } from "@sloppa/api"
 import { Exit, Option, Schema } from "effect"
 import { AsyncResult } from "effect/reactivity"
 import { type ReactNode, useState } from "react"
-import { artifactAtom, deleteArtifactAtom, invalidateArtifacts, MAX_TEXT_PREVIEW, textPreviewAtom } from "../api.ts"
-import { formatAgo, formatDate, formatSize, kindOf, markdownFor } from "../format.ts"
+import {
+  artifactAtom,
+  collectionPath,
+  deleteArtifactAtom,
+  invalidateArtifacts,
+  MAX_TEXT_PREVIEW,
+  textPreviewAtom
+} from "../api.ts"
+import { formatAgo, formatDate, formatSize, kindOf, pullRequestUrl } from "../format.ts"
 import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
 import { useSignedIn } from "./Login.tsx"
-import { Button, ButtonLink, CopyButton, LinkButton, Loading, Notice, PrName, useToast } from "./ui.tsx"
+import { Button, ButtonLink, CollectionName, CopyButton, LinkButton, Loading, Notice, useToast } from "./ui.tsx"
 
 const TextPreview = ({ url }: { url: string }) => {
   const result = useAtomValue(textPreviewAtom(url))
@@ -33,16 +48,55 @@ const TooBig = ({ artifact, title }: { artifact: Artifact; title: string }) => (
   </Notice>
 )
 
+/**
+ * Images and videos play on a stage sized before any of their bytes arrive: nothing tells us their
+ * dimensions up front, and a box that grows as they load would shove the page around on a slow link.
+ */
+const STAGE = "flex max-h-[70vh] w-full items-center justify-center"
+
+/**
+ * The thumbnail stands in until the original lands. The grid already fetched it, and it's cached for
+ * good, so it's usually there at once; the original fades in over it.
+ */
+const ImagePreview = ({ artifact }: { artifact: Artifact }) => {
+  const [loaded, setLoaded] = useState(false)
+  return (
+    <a
+      href={artifact.rawUrl}
+      target="_blank"
+      rel="noreferrer"
+      className={`checkerboard relative aspect-4/3 p-4 ${STAGE}`}
+    >
+      {artifact.thumbUrl !== undefined && !loaded && (
+        <img
+          src={artifact.thumbUrl}
+          alt=""
+          aria-hidden
+          className="absolute inset-4 size-[calc(100%-2rem)] object-contain blur-[2px]"
+        />
+      )}
+      <img
+        // Already cached, the image may be complete before React would see its load event.
+        ref={(img) => {
+          if (img?.complete && img.naturalWidth > 0) setLoaded(true)
+        }}
+        src={artifact.rawUrl}
+        alt={artifact.name}
+        onLoad={() => setLoaded(true)}
+        className={`relative max-h-full max-w-full object-contain transition-opacity duration-200 ${
+          loaded ? "opacity-100" : "opacity-0"
+        }`}
+      />
+    </a>
+  )
+}
+
 const Preview = ({ artifact }: { artifact: Artifact }) => {
   switch (kindOf(artifact)) {
     case "image":
-      return (
-        <a href={artifact.rawUrl} target="_blank" rel="noreferrer" className="checkerboard flex justify-center p-4">
-          <img src={artifact.rawUrl} alt={artifact.name} className="max-h-[70vh] max-w-full object-contain" />
-        </a>
-      )
+      return <ImagePreview key={artifact.id} artifact={artifact} />
     case "video":
-      return <video src={artifact.rawUrl} controls className="max-h-[70vh] w-full bg-black" />
+      return <video src={artifact.rawUrl} controls className={`aspect-video bg-black ${STAGE}`} />
     case "audio":
       return (
         <div className="p-8">
@@ -94,7 +148,15 @@ const SellButton = ({ artifact }: { artifact: Artifact }) => {
         })
       }}
     >
-      {busy ? "deleting…" : "delete"}
+      {busy ? (
+        <>
+          <CircleNotchIcon size={18} weight="bold" className="animate-spin" /> deleting…
+        </>
+      ) : (
+        <>
+          <TrashIcon size={18} weight="bold" /> delete file
+        </>
+      )}
     </Button>
   )
 }
@@ -108,6 +170,32 @@ const Stat = ({ label, children }: { label: string; children: ReactNode }) => (
   </div>
 )
 
+/**
+ * Signed in, onto the rest of the collection; signed out (someone following a shared link), the
+ * dashboard is closed to them, so only a collection named after a PR links anywhere: to the PR.
+ */
+const CollectionLink = ({ collection }: { collection: string }) => {
+  const signedIn = useSignedIn()
+  const name = <CollectionName collection={collection} />
+  const link = "flex justify-end text-sky-deep hover:underline"
+  if (signedIn) {
+    const path = collectionPath(collection)
+    return (
+      <a href={path} onClick={onLinkClick(path)} className={link}>
+        {name}
+      </a>
+    )
+  }
+  const pr = pullRequestUrl(collection)
+  return pr === undefined ? (
+    <span className="flex justify-end">{name}</span>
+  ) : (
+    <a href={pr} target="_blank" rel="noreferrer" className={link}>
+      {name}
+    </a>
+  )
+}
+
 const Inspector = ({ artifact }: { artifact: Artifact }) => {
   // minmax(0, …): a long name in the sidebar truncates instead of widening the page.
   return (
@@ -118,19 +206,9 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
       <aside className="panel animate-rise-in space-y-4 p-4">
         <h1 className="font-game text-2xl leading-tight break-all">{artifact.name}</h1>
         <dl>
-          {artifact.pr !== undefined && (
-            <Stat label="PR">
-              <a
-                href={artifact.pr}
-                target="_blank"
-                rel="noreferrer"
-                className="flex justify-end text-sky-deep hover:underline"
-              >
-                <PrName pr={artifact.pr} />
-              </a>
-            </Stat>
-          )}
-          {artifact.repo !== undefined && artifact.pr === undefined && <Stat label="Repo">{artifact.repo}</Stat>}
+          <Stat label="Collection">
+            <CollectionLink collection={artifact.collection} />
+          </Stat>
           <Stat label="Type">
             <code className="font-mono text-xs">{artifact.contentType}</code>
           </Stat>
@@ -140,19 +218,33 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
           </Stat>
         </dl>
         <div className="grid gap-2.5">
-          <CopyButton label="copy link" value={artifact.rawUrl} toast="link copied" tone="green" />
-          <CopyButton label="copy markdown" value={markdownFor(artifact)} toast="markdown copied" tone="blue" />
+          <CopyButton
+            label="copy file URL"
+            icon={<LinkIcon size={18} weight="bold" />}
+            value={artifact.rawUrl}
+            toast="file URL copied"
+            tone="green"
+          />
+          <CopyButton
+            label="copy page URL"
+            icon={<BrowserIcon size={18} weight="bold" />}
+            value={artifact.url}
+            toast="page URL copied"
+            tone="blue"
+          />
           <div className="grid grid-cols-2 gap-2.5">
-            <LinkButton href={artifact.rawUrl}>open raw</LinkButton>
-            <LinkButton href={`${artifact.rawUrl}?download`} download tone="gold">
-              download
-            </LinkButton>
+            <ButtonLink href={artifact.rawUrl} target="_blank" rel="noreferrer">
+              <ArrowSquareOutIcon size={18} weight="bold" /> open file
+            </ButtonLink>
+            <ButtonLink href={`${artifact.rawUrl}?download`} tone="gold">
+              <DownloadSimpleIcon size={18} weight="bold" /> download
+            </ButtonLink>
           </div>
           <SignedIn>
             <SellButton artifact={artifact} />
           </SignedIn>
         </div>
-        <p className="font-mono text-[11px] break-all text-ink/40">{artifact.id}</p>
+        <p className="text-center font-mono text-[11px] break-all text-ink/40">{artifact.id}</p>
       </aside>
     </div>
   )
@@ -181,9 +273,12 @@ const decodeId = Schema.decodeUnknownOption(ArtifactId)
 
 export const ArtifactView = ({ id }: { id: string }) => (
   <div className="space-y-5">
-    <ButtonLink href={listPath()} onClick={onLinkClick(listPath(), returnTo)} size="sm">
-      <ArrowLeftIcon size={16} /> all artifacts
-    </ButtonLink>
+    {/* The list is behind sign-in: a shared link's visitor has nowhere to go back to. */}
+    <SignedIn>
+      <ButtonLink href={listPath()} onClick={onLinkClick(listPath(), returnTo)} size="sm">
+        <ArrowLeftIcon size={16} /> all artifacts
+      </ButtonLink>
+    </SignedIn>
     {Option.match(decodeId(id), {
       onNone: () => (
         <Notice title="artifact not found" mood="hiss">

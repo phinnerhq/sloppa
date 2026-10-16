@@ -5,7 +5,7 @@ import { Predicate } from "effect"
 import { AsyncResult, type Atom } from "effect/reactivity"
 import { AnimatePresence, motion } from "motion/react"
 import { memo, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react"
-import { colorFor, formatAgoShort, formatSize, kindOf, prLabel } from "../format.ts"
+import { colorFor, formatAgoShort, formatSize, kindOf, pullRequestUrl } from "../format.ts"
 import { onLinkClick } from "../router.ts"
 import { Login } from "./Login.tsx"
 import { extensionOf, Notice } from "./ui.tsx"
@@ -205,35 +205,40 @@ export const pop = {
 interface Run {
   /** The run's first artifact: later pages only ever extend a run at its end, so this stays put. */
   readonly key: string
-  readonly pr: string | undefined
+  readonly collection: string
   readonly items: Array<Artifact>
 }
 
 /**
- * Consecutive uploads to the same PR, newest first. Grouping across the whole list instead would pull
- * a PR's older uploads up into its first group whenever a page loads, reshuffling what's already on screen.
+ * Consecutive uploads to the same collection, newest first. Grouping across the whole list instead would
+ * pull a collection's older uploads up into its first group whenever a page loads, reshuffling what's
+ * already on screen.
  */
-const runsByPr = (artifacts: ReadonlyArray<Artifact>) => {
+const runsByCollection = (artifacts: ReadonlyArray<Artifact>) => {
   const runs: Array<Run> = []
   for (const artifact of artifacts) {
     const last = runs.at(-1)
-    if (last !== undefined && last.pr === artifact.pr) last.items.push(artifact)
-    else runs.push({ key: artifact.id, pr: artifact.pr, items: [artifact] })
+    if (last !== undefined && last.collection === artifact.collection) last.items.push(artifact)
+    else runs.push({ key: artifact.id, collection: artifact.collection, items: [artifact] })
   }
   return runs
 }
 
-/** A PR's label, linking to it. */
-export const PrTitle = ({ pr }: { pr: string | undefined }) =>
-  pr === undefined ? (
-    <span className="game-title text-xl">no PR</span>
+const TITLE = "game-title text-xl"
+
+/** A collection's name, linking to its PR when it names one. */
+export const CollectionTitle = ({ collection }: { collection: string }) => {
+  const pr = pullRequestUrl(collection)
+  return pr === undefined ? (
+    <span className={`${TITLE} break-all`}>{collection}</span>
   ) : (
-    <a href={pr} target="_blank" rel="noreferrer" className="game-title text-xl transition-colors hover:text-sky">
-      {prLabel(pr)}
+    <a href={pr} target="_blank" rel="noreferrer" className={`${TITLE} transition-colors hover:text-sky`}>
+      {collection}
     </a>
   )
+}
 
-/** Cards grouped by PR, each under its heading unless the page already has one. */
+/** Cards grouped by collection, each under its heading unless the page already has one. */
 export const Inventory = ({
   artifacts,
   headings = true
@@ -243,11 +248,11 @@ export const Inventory = ({
 }) => (
   <div className="relative flex flex-col gap-8">
     <AnimatePresence mode="popLayout" initial={false}>
-      {runsByPr(artifacts).map(({ key, pr, items }) => (
+      {runsByCollection(artifacts).map(({ key, collection, items }) => (
         <motion.section key={key} {...pop} className="space-y-3">
           {headings && (
             <h2 className="flex flex-wrap items-center gap-2">
-              <PrTitle pr={pr} />
+              <CollectionTitle collection={collection} />
               <ItemCount count={items.length} />
             </h2>
           )}

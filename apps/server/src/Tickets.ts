@@ -9,8 +9,7 @@ export const Ticket = Schema.Struct({
   id: ArtifactId,
   name: Schema.String,
   contentType: Schema.optionalKey(Schema.String),
-  repo: Schema.optionalKey(Schema.String),
-  pr: Schema.optionalKey(Schema.String),
+  collection: Schema.String,
   /** Expiry, epoch millis. */
   exp: Schema.Finite
 })
@@ -32,6 +31,13 @@ export class UploadTickets extends Context.Service<
       ticket: Omit<Ticket, "id" | "exp">
     ) => Effect.Effect<{ readonly token: string; readonly ticket: Ticket }>
     readonly verify: (token: string) => Effect.Effect<Option.Option<Ticket>>
+    /**
+     * Takes a ticket for one upload. False if it's already taken, by an upload that finished or one
+     * still running, so two PUTs can't race to write the same artifact, and deleting it doesn't free
+     * the ticket again. `release` hands it back after a failed upload.
+     */
+    readonly claim: (ticket: Ticket) => Effect.Effect<boolean>
+    readonly release: (ticket: Ticket) => Effect.Effect<void>
   }
 >()("sloppa/server/UploadTickets") {
   static readonly layer = Layer.effect(
@@ -67,7 +73,19 @@ export class UploadTickets extends Context.Service<
         )
       })
 
-      return UploadTickets.of({ issue, verify })
+      // Ids by expiry. A ticket past it fails verification anyway, so it can be forgotten then.
+      const claimed = new Map<string, number>()
+      const claim = (ticket: Ticket) =>
+        Effect.map(DateTime.now, (now) => {
+          const ms = DateTime.toEpochMillis(now)
+          for (const [id, exp] of claimed) if (exp <= ms) claimed.delete(id)
+          if (claimed.has(ticket.id)) return false
+          claimed.set(ticket.id, ticket.exp)
+          return true
+        })
+      const release = (ticket: Ticket) => Effect.sync(() => void claimed.delete(ticket.id))
+
+      return UploadTickets.of({ issue, verify, claim, release })
     })
   )
 }

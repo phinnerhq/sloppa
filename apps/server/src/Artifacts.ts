@@ -3,18 +3,15 @@ import {
   type ArtifactId,
   ArtifactGroup,
   ArtifactPage,
+  CollectionSummary,
   GROUP_PREVIEW_SIZE,
   GroupPage,
-  normalizePr,
-  PrSummary,
   rawPath,
-  RepoSummary,
-  repoOfPr,
   Stats,
   thumbPath,
   viewerPath
 } from "@sloppa/api"
-import { Context, Effect, Layer, Option } from "effect"
+import { Context, Effect, Layer, Option, Semaphore } from "effect"
 import { AppConfig } from "./Config.ts"
 import { resolveContentType } from "./ContentType.ts"
 import { ArtifactIndex } from "./Index.ts"
@@ -27,8 +24,7 @@ export interface UploadInput {
   /** What the uploader claimed; the file extension wins when this is missing or generic. */
   readonly contentType: string | undefined
   readonly body: Upload
-  readonly repo: string | undefined
-  readonly pr: string | undefined
+  readonly collection: string
 }
 
 const makeArtifacts = Effect.gen(function* () {
@@ -36,6 +32,12 @@ const makeArtifacts = Effect.gen(function* () {
   const index = yield* ArtifactIndex
   const thumbnails = yield* Thumbnails
   const { publicUrl } = yield* AppConfig
+  /**
+   * Moves and deletes rewrite storage, then the index. One at a time, and never cut off halfway, so a
+   * move can't bring back a sidecar a delete just removed, nor leave the index naming the old collection.
+   */
+  const mutation = Semaphore.withPermits(yield* Semaphore.make(1), 1)
+  const atomically = <A, E, R>(effect: Effect.Effect<A, E, R>) => mutation(Effect.uninterruptible(effect))
 
   const present = (stored: StoredArtifact) =>
     new Artifact({
@@ -44,26 +46,21 @@ const makeArtifacts = Effect.gen(function* () {
       contentType: stored.contentType,
       size: stored.size,
       createdAt: stored.createdAt,
-      ...(stored.repo === undefined ? {} : { repo: stored.repo }),
-      ...(stored.pr === undefined ? {} : { pr: stored.pr }),
+      collection: stored.collection,
       url: `${publicUrl}${viewerPath(stored.id)}`,
       rawUrl: `${publicUrl}${rawPath(stored.id, stored.name)}`,
       ...(hasThumbnail(stored.contentType) ? { thumbUrl: `${publicUrl}${thumbPath(stored.id)}` } : {})
     })
 
   const list = (query: {
-    repo?: string | undefined
-    pr?: string | undefined
-    noPr?: boolean | undefined
+    collection?: string | undefined
     q?: string | undefined
     cursor?: string | undefined
     limit: number
   }) =>
     index
       .list({
-        repo: query.repo,
-        pr: query.pr === undefined ? undefined : normalizePr(query.pr),
-        noPr: query.noPr ?? false,
+        collection: query.collection?.trim() || undefined,
         search: query.q?.trim() || undefined,
         cursor: query.cursor,
         limit: query.limit
@@ -75,20 +72,12 @@ const makeArtifacts = Effect.gen(function* () {
         )
       )
 
-  const groups = (query: { repo?: string | undefined; cursor?: string | undefined; limit: number }) =>
-    index.groups({ repo: query.repo, cursor: query.cursor, limit: query.limit, previewSize: GROUP_PREVIEW_SIZE }).pipe(
+  const groups = (query: { cursor?: string | undefined; limit: number }) =>
+    index.groups({ cursor: query.cursor, limit: query.limit, previewSize: GROUP_PREVIEW_SIZE }).pipe(
       Effect.map(
         ({ items, nextCursor }) =>
           new GroupPage({
-            items: items.map(
-              ({ pr, repo, preview, ...rest }) =>
-                new ArtifactGroup({
-                  ...rest,
-                  ...(pr === undefined ? {} : { pr }),
-                  ...(repo === undefined ? {} : { repo }),
-                  preview: preview.map(present)
-                })
-            ),
+            items: items.map(({ preview, ...rest }) => new ArtifactGroup({ ...rest, preview: preview.map(present) })),
             ...(nextCursor === undefined ? {} : { nextCursor })
           })
       )
@@ -107,22 +96,31 @@ const makeArtifacts = Effect.gen(function* () {
     )
 
   const upload = Effect.fn("Artifacts.upload")(function* (input: UploadInput) {
-    const pr = input.pr === undefined ? undefined : normalizePr(input.pr)
     const stored = yield* storage.put({
       id: input.id,
       name: input.name,
       contentType: resolveContentType(input.name, input.contentType),
       body: input.body,
-      repo: input.repo ?? (pr === undefined ? undefined : repoOfPr(pr)),
-      pr
+      collection: input.collection.trim()
     })
     yield* index.insert(stored)
     yield* Effect.logInfo(`Stored ${stored.name} as ${stored.id}`)
     return present(stored)
   })
 
-  const remove = (id: ArtifactId) =>
-    storage.remove(id).pipe(Effect.ensuring(Effect.andThen(index.remove(id), thumbnails.remove(id))))
+  /** Unindexed once it's gone from storage, or already was; a failed delete leaves it listed. */
+  const remove = (id: ArtifactId) => {
+    const forget = Effect.andThen(index.remove(id), thumbnails.remove(id))
+    return atomically(
+      storage.remove(id).pipe(
+        Effect.catchTag("ArtifactNotFound", (missing) => Effect.andThen(forget, Effect.fail(missing))),
+        Effect.andThen(forget)
+      )
+    )
+  }
+
+  const move = (id: ArtifactId, collection: string) =>
+    atomically(storage.setCollection(id, collection.trim()).pipe(Effect.tap(index.insert), Effect.map(present)))
 
   const exists = (id: ArtifactId) =>
     storage.head(id).pipe(
@@ -136,18 +134,11 @@ const makeArtifacts = Effect.gen(function* () {
     )
   )
 
-  const prs = (repo: string | undefined) =>
-    index
-      .prs(repo)
-      .pipe(
-        Effect.map((prs) =>
-          prs.map(({ repo, ...rest }) => new PrSummary({ ...rest, ...(repo === undefined ? {} : { repo }) }))
-        )
-      )
+  const collections = index.collections.pipe(
+    Effect.map((collections) => collections.map((collection) => new CollectionSummary(collection)))
+  )
 
-  const repos = index.repos.pipe(Effect.map((repos) => repos.map((repo) => new RepoSummary(repo))))
-
-  return { present, list, groups, get, upload, remove, exists, stats, prs, repos }
+  return { present, list, mosaic: groups, get, upload, move, remove, exists, stats, collections }
 })
 
 /** Everything you can do with artifacts, shared by the HTTP API and the MCP server. */
