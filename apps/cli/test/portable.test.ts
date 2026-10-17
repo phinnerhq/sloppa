@@ -6,11 +6,9 @@ import {
   alive,
   api,
   fixture,
-  get,
   removeWork,
   run,
   startSloppa,
-  status,
   stopServers,
   stopStarted,
   waitFor,
@@ -39,13 +37,12 @@ it("serves a dev server started through npm, and stops all of it from sloppa", a
   const preview = await run(sloppa, [], ["npm", "exec", "--offline", "--", process.execPath, fixture, ...args], work)
   const [server, grandchild] = preview.pids()
 
-  // Not fetch: Windows can't resolve the preview's name under preview.localhost by itself.
-  const body = JSON.parse((await get(`${preview.url}hello`)).body.toString()) as { path: string; args: Array<string> }
+  const body = (await (await fetch(`${preview.url}hello`)).json()) as { path: string; args: Array<string> }
   expect(body.path).toBe("/hello")
   expect(body.args).toEqual(args)
 
   expect((await api(sloppa, "DELETE", `/api/previews/${preview.id}`)).status).toBe(204)
   expect(await preview.exited, preview.stderr()).toBe(0)
   await waitFor(() => !alive(server) && !alive(grandchild), "the dev server and what it started to stop")
-  expect(await status(preview.url)).toBe(404)
+  expect((await fetch(preview.url)).status).toBe(404)
 })
