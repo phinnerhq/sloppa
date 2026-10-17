@@ -12,61 +12,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    name: "Check"
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: "Checkout Repository"
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: "Setup pnpm"
-        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-
-      - name: "Setup Node.js"
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
-        with:
-          node-version-file: ".node-version"
-          cache: "pnpm"
-
-      # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin
-      - name: "Install Dependencies"
-        run: pnpm install --frozen-lockfile
-
-      - name: "Typecheck, Lint and Format"
-        run: pnpm run check
-
-      # The CLI end to end, against the real server and its previews. Coverage comes from every
-      # process, test workers and spawned servers alike, for fallow's CRAP scores
-      - name: "Test"
-        run: pnpm run test
-        env:
-          # Absolute, since each process resolves it against its own working directory
-          NODE_V8_COVERAGE: "${{ github.workspace }}/coverage/v8"
-
-      - name: "Check Code Health"
-        run: pnpm exec fallow health -c .fallowrc.ci.json
-
-      - name: "Build"
-        run: pnpm run build
-
-      - name: "Upload Test Results"
-        if: ${{ always() }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: test-results-linux
-          path: "test-results/junit.xml"
-
-  # The CLI where agents run it. On Windows that means .cmd shims through cmd.exe, and process
-  # trees stopped with taskkill. Suites that need POSIX or /proc skip themselves
-  cli:
-    name: "CLI (${{ matrix.name }})"
+  build:
+    name: "Build (${{ matrix.name }})"
     strategy:
       fail-fast: false
       matrix:
         include:
+          - name: linux
+            runner: ubuntu-24.04
           - name: windows
             runner: windows-2025
           - name: macos
@@ -88,11 +41,16 @@ jobs:
           node-version-file: ".node-version"
           cache: "pnpm"
 
+      # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin
       - name: "Install Dependencies"
         run: pnpm install --frozen-lockfile
 
-      - name: "Build CLI"
-        run: pnpm --filter @sloppa/cli build
+      # The same on every platform, so Linux alone runs it
+      - name: "Typecheck, Lint and Format"
+        run: pnpm run check
+
+      - name: "Build"
+        run: pnpm run build
 
       - name: "Run CLI Shim"
         if: ${{ runner.os == 'Windows' }}
@@ -105,6 +63,13 @@ jobs:
 
       - name: "Test"
         run: pnpm run test
+        env:
+          # Absolute, since each process resolves it against its own working directory. Empty is off
+          NODE_V8_COVERAGE: "${{ runner.os == 'Linux' && format('{0}/coverage/v8', github.workspace) || '' }}"
+
+      - name: "Check Code Health"
+        if: ${{ runner.os == 'Linux' }}
+        run: pnpm exec fallow health -c .fallowrc.ci.json
 
       - name: "Upload Test Results"
         if: ${{ always() }}
@@ -113,10 +78,9 @@ jobs:
           name: test-results-${{ matrix.name }}
           path: "test-results/junit.xml"
 
-  # Pull requests only check that the image builds, master publishes it
   docker:
     name: "Docker"
-    needs: check
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
