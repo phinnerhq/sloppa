@@ -5,3 +5,4 @@ dist
 .data
 .fallow/
 coverage
+test-results

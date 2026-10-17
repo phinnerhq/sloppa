@@ -1,91 +1,171 @@
-name: CI
+name: "CI"
 
 on:
   push:
-    branches: [master]
+    branches: ["master"]
+    paths-ignore: ["**/*.md"]
   pull_request:
+    paths-ignore: ["**/*.md"]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: "${{ github.workflow }}-${{ github.event.number || github.ref }}"
   cancel-in-progress: true
-
-permissions:
-  contents: read
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    name: "Check"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - name: "Checkout Repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version-file: .node-version
-          cache: pnpm
-      # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin.
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run check
-      # The CLI end to end, against the real server and its previews. Coverage from every
-      # process, test workers and spawned servers alike, for fallow's CRAP scores.
-      - run: pnpm run test
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin
+      - name: "Install Dependencies"
+        run: pnpm install --frozen-lockfile
+
+      - name: "Typecheck, Lint and Format"
+        run: pnpm run check
+
+      # The CLI end to end, against the real server and its previews. Coverage comes from every
+      # process, test workers and spawned servers alike, for fallow's CRAP scores
+      - name: "Test"
+        run: pnpm run test
         env:
-          # Absolute: each process resolves it against its own working directory.
-          NODE_V8_COVERAGE: ${{ github.workspace }}/coverage/v8
-      - run: pnpm exec fallow health -c .fallowrc.ci.json
-      - run: pnpm run build
+          # Absolute, since each process resolves it against its own working directory
+          NODE_V8_COVERAGE: "${{ github.workspace }}/coverage/v8"
+
+      - name: "Check Code Health"
+        run: pnpm exec fallow health -c .fallowrc.ci.json
+
+      - name: "Build"
+        run: pnpm run build
+
+      - name: "Upload Test Results"
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-linux
+          path: "test-results/junit.xml"
 
   # The CLI where agents run it. On Windows that means .cmd shims through cmd.exe, and process
-  # trees stopped with taskkill. Suites that need POSIX or /proc skip themselves.
+  # trees stopped with taskkill. Suites that need POSIX or /proc skip themselves
   cli:
+    name: "CLI (${{ matrix.name }})"
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+        include:
+          - name: windows
+            runner: windows-2025
+          - name: macos
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
+      - name: "Checkout Repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: "Setup pnpm"
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @sloppa/cli build
-      - if: runner.os == 'Windows'
+          node-version-file: ".node-version"
+          cache: "pnpm"
+
+      - name: "Install Dependencies"
+        run: pnpm install --frozen-lockfile
+
+      - name: "Build CLI"
+        run: pnpm --filter @sloppa/cli build
+
+      - name: "Run CLI Shim"
+        if: ${{ runner.os == 'Windows' }}
         run: apps\cli\dist\sloppa.cmd --version
         shell: cmd
-      - if: runner.os != 'Windows'
-        run: apps/cli/dist/sloppa.mjs --version
-      - run: pnpm run test
 
-  image:
+      - name: "Run CLI"
+        if: ${{ runner.os != 'Windows' }}
+        run: apps/cli/dist/sloppa.mjs --version
+
+      - name: "Test"
+        run: pnpm run test
+
+      - name: "Upload Test Results"
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: test-results-${{ matrix.name }}
+          path: "test-results/junit.xml"
+
+  # Pull requests only check that the image builds, master publishes it
+  docker:
+    name: "Docker"
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        if: github.event_name == 'push'
+      - name: "Checkout Repository"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: "Setup Docker Builder"
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: "Login to GitHub Container Registry"
+        if: ${{ github.event_name == 'push' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v6
+          registry: "ghcr.io"
+          username: "${{ github.actor }}"
+          password: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: "Extract Docker Metadata"
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: "ghcr.io/${{ github.repository }}"
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
-      # Pull requests only check that the image builds; main publishes it.
-      - uses: docker/build-push-action@v7
+
+      - name: "Build and Publish Docker Image"
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
-          context: .
+          context: "."
           push: ${{ github.event_name == 'push' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: "${{ steps.meta.outputs.tags }}"
+          labels: "${{ steps.meta.outputs.labels }}"
+          cache-from: "type=gha"
+          cache-to: "type=gha,mode=max"
+
+  # The test results workflow runs outside of this pull request, and reads it from this file
+  event-file:
+    name: "Event File"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: "Upload Event File"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: event-file
+          path: "${{ github.event_path }}"

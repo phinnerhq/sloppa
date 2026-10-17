@@ -1,0 +1,35 @@
+name: "Test Results"
+
+# A separate workflow, so it may write checks and comments for pull requests from forks too
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+jobs:
+  publish:
+    name: "Publish"
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      pull-requests: write
+    steps:
+      - name: "Download Test Results"
+        uses: dawidd6/action-download-artifact@eab87c9830c39eff17e5a6eadb20bfb4bc880477 # v27
+        with:
+          run_id: ${{ github.event.workflow_run.id }}
+          path: artifacts
+          name: test-results-.*|event-file
+          name_is_regexp: true
+
+      - name: "Publish Test Results"
+        uses: EnricoMi/publish-unit-test-result-action@7622c5bf3d112a72ab4fa3951c2aa5723d8ab92d # v2
+        with:
+          commit: ${{ github.event.workflow_run.head_sha }}
+          event_file: artifacts/event-file/event.json
+          event_name: ${{ github.event.workflow_run.event }}
+          files: "artifacts/test-results-*/*.xml"
