@@ -2,6 +2,7 @@ import { splice, SUBPROTOCOL, TunnelStream } from "@sloppa/preview"
 import { Data, Effect } from "effect"
 import { connect, type Socket } from "node:net"
 import { WebSocket } from "ws"
+import { lookupLocalhost } from "./Localhost.ts"
 
 /** Nothing accepted a connection on the dev server's port. */
 class DevServerUnreachable extends Data.TaggedError("DevServerUnreachable")<{ readonly cause: unknown }> {}
@@ -35,7 +36,11 @@ export const connectLocal = (port: number) => {
  */
 export const pipe = (local: Socket, dataUrl: string) =>
   Effect.callback<void>((resume) => {
-    const ws = new WebSocket(dataUrl, SUBPROTOCOL, { perMessageDeflate: false, handshakeTimeout: 10_000 })
+    const ws = new WebSocket(dataUrl, SUBPROTOCOL, {
+      perMessageDeflate: false,
+      handshakeTimeout: 10_000,
+      lookup: lookupLocalhost
+    })
     const tunnel = new TunnelStream(ws)
     void splice(local, tunnel).then(() => resume(Effect.void))
     return Effect.sync(() => tunnel.destroy())

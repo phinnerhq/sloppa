@@ -15,6 +15,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { setTimeout as sleep } from "node:timers/promises"
+import { lookupLocalhost } from "../src/Localhost.ts"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = resolve(here, "../../..")
@@ -59,10 +60,10 @@ export const exited = (child: ChildProcess) =>
     child.once("exit", settle)
   })
 
-/** Raw HTTP, so nothing is decompressed or followed on the way. */
+/** Raw HTTP, so nothing is decompressed or followed on the way, to previews on Windows too. */
 export const get = (url: string, headers: Record<string, string> = {}) =>
   new Promise<{ status: number; headers: IncomingHttpHeaders; body: Buffer }>((done, fail) => {
-    httpRequest(url, { headers, signal: AbortSignal.timeout(10_000) }, (response) => {
+    httpRequest(url, { headers, lookup: lookupLocalhost, signal: AbortSignal.timeout(10_000) }, (response) => {
       const chunks: Array<Buffer> = []
       response.on("data", (chunk: Buffer) => chunks.push(chunk))
       response.on("end", () =>

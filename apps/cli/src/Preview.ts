@@ -7,6 +7,7 @@ import * as Socket from "effect/socket/Socket"
 import { createServer } from "node:net"
 import { hostname } from "node:os"
 import { WebSocket } from "ws"
+import { lookupLocalhost } from "./Localhost.ts"
 import { connectLocal, pipe } from "./Pipe.ts"
 import { resolveSpawnCommand } from "./Spawn.ts"
 
@@ -19,8 +20,8 @@ import { resolveSpawnCommand } from "./Spawn.ts"
 const WebSocketConstructor = Layer.succeed(Socket.WebSocketConstructor, (url, options) => {
   const ws =
     options === undefined || typeof options === "string" || Array.isArray(options)
-      ? new WebSocket(url, options)
-      : new WebSocket(url, options.protocols, { headers: options.headers })
+      ? new WebSocket(url, options, { lookup: lookupLocalhost })
+      : new WebSocket(url, options.protocols, { headers: options.headers, lookup: lookupLocalhost })
   ws.on("error", () => {})
   return ws as unknown as globalThis.WebSocket
 })
