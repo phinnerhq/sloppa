@@ -5,6 +5,9 @@ import {
   ArtifactPage,
   CollectionName,
   CollectionSummary,
+  Preview,
+  PreviewNotFound,
+  PreviewsUnavailable,
   rawPath,
   StorageError,
   viewerPath
@@ -15,7 +18,8 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
-import { uploadOf } from "./Storage.ts"
+import { uploadOf } from "./StorageShared.ts"
+import { Previews } from "./Previews.ts"
 import { UploadTickets } from "./Tickets.ts"
 
 const Collection = CollectionName.annotate({
@@ -131,6 +135,32 @@ const DeleteArtifact = Tool.make("delete_artifact", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false)
 
+const PreviewFailure = Schema.Union([PreviewNotFound, PreviewsUnavailable])
+
+const PreviewList = Tool.make("preview_list", {
+  description:
+    "Dev servers this account is sharing with `sloppa preview run`, newest first: URL, command, " +
+    "working directory and machine. A preview lives exactly as long as its command runs.",
+  parameters: Tool.EmptyParams,
+  success: Schema.Struct({ items: Schema.Array(Preview) }),
+  failure: PreviewFailure
+})
+  .annotate(Tool.Title, "List previews")
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+
+const PreviewStop = Tool.make("preview_stop", {
+  description:
+    "Stop a preview by id: its URL stops working, and its `sloppa preview run` kills the dev server and exits.",
+  parameters: Schema.Struct({ id: Schema.String }),
+  success: Schema.Struct({ stopped: Schema.String }),
+  failure: PreviewFailure
+})
+  .annotate(Tool.Title, "Stop preview")
+  .annotate(Tool.Idempotent, true)
+  .annotate(Tool.OpenWorld, false)
+
 const ArtifactTools = Toolkit.make(
   RequestUpload,
   UploadText,
@@ -138,7 +168,9 @@ const ArtifactTools = Toolkit.make(
   ListCollections,
   GetArtifact,
   MoveArtifact,
-  DeleteArtifact
+  DeleteArtifact,
+  PreviewList,
+  PreviewStop
 )
 
 const ArtifactToolHandlers = ArtifactTools.toLayer(
@@ -146,6 +178,17 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
     const artifacts = yield* Artifacts
     const tickets = yield* UploadTickets
     const { publicUrl } = yield* AppConfig
+    const previews = yield* Previews
+    const accounts = yield* Accounts
+    /** Previews belong to an account, so these tools ask who the agent token is. */
+    const caller = Effect.gen(function* () {
+      const request = yield* Effect.serviceOption(HttpServerRequest.HttpServerRequest)
+      const token = Option.getOrUndefined(Option.flatMapNullishOr(request, bearerOf)) ?? ""
+      return Option.getOrThrowWith(
+        yield* accounts.authenticate("agent", token),
+        () => new Error("MCP tool call without an agent token")
+      )
+    })
 
     return {
       request_upload: Effect.fn(function* ({ name, collection, contentType }) {
@@ -176,7 +219,17 @@ const ArtifactToolHandlers = ArtifactTools.toLayer(
       list_collections: () => artifacts.collections.pipe(Effect.map((items) => ({ items }))),
       get_artifact: ({ id }) => artifacts.get(id),
       move_artifact: ({ id, collection }) => artifacts.move(id, collection),
-      delete_artifact: ({ id }) => artifacts.remove(id).pipe(Effect.as({ deleted: id }))
+      delete_artifact: ({ id }) => artifacts.remove(id).pipe(Effect.as({ deleted: id })),
+      preview_list: () =>
+        caller.pipe(
+          Effect.flatMap(previews.list),
+          Effect.map((items) => ({ items }))
+        ),
+      preview_stop: ({ id }) =>
+        caller.pipe(
+          Effect.flatMap((account) => previews.stop(account, id)),
+          Effect.as({ stopped: id })
+        )
     }
   })
 )
@@ -185,7 +238,11 @@ const INSTRUCTIONS = `Stores artifacts (screenshots, recordings, logs, reports) 
 To attach a local file: call request_upload, run its command, then link its rawUrl from the PR description or a comment.
 For text you already have in hand, upload_text does it in one call.
 Every upload goes in a collection: for a PR, name it \`owner/repo #42\`. move_artifact refiles one.
-Links are public to anyone holding them; listing needs this agent's token.`
+Links are public to anyone holding them; listing needs this agent's token.
+To share a running dev server instead, run \`sloppa preview run -- <dev command>\` in the background and give out the URL it prints; preview_list and preview_stop manage those.`
+
+const bearerOf = (request: HttpServerRequest.HttpServerRequest) =>
+  /^Bearer +(\S+)$/i.exec(request.headers["authorization"] ?? "")?.[1]
 
 /** The agent token check. It lives outside the typed API's security, so it's attached to the MCP routes themselves. */
 const AgentToken = HttpRouter.middleware(
@@ -194,7 +251,7 @@ const AgentToken = HttpRouter.middleware(
     return (httpApp) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest
-        const token = /^Bearer +(\S+)$/i.exec(request.headers["authorization"] ?? "")?.[1]
+        const token = bearerOf(request)
         if (token !== undefined && Option.isSome(yield* accounts.authenticate("agent", token))) return yield* httpApp
         return HttpServerResponse.text("Missing or invalid token: set this agent up from the dashboard\n", {
           status: 401,
@@ -209,7 +266,7 @@ export const McpRoutes = McpServer.toolkit(ArtifactTools).pipe(
   Layer.provide(ArtifactToolHandlers),
   Layer.provide(
     McpServer.layerHttp({
-      name: "sloppa-artifacts",
+      name: "sloppa",
       version: "0.1.0",
       instructions: INSTRUCTIONS,
       path: "/mcp",

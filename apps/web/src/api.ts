@@ -3,7 +3,7 @@ import { Effect, Option, Stream } from "effect"
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http"
 import { Atom, AtomHttpApi } from "effect/reactivity"
 
-export class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient", {
+class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient", {
   api: Api,
   // Signed in through an HttpOnly cookie, which same-origin fetches send by themselves.
   httpClient: FetchHttpClient.layer,
@@ -18,8 +18,9 @@ export const sessionAtom = ApiClient.query("session", "current", { reactivityKey
 
 export const loginAtom = ApiClient.mutation("session", "login")
 export const logoutAtom = ApiClient.mutation("session", "logout")
+export const changePasswordAtom = ApiClient.mutation("session", "changePassword")
 /** Pass as `reactivityKeys` when signing in or out. */
-export const invalidateSession = ["session", "artifacts", "agents"]
+export const invalidateSession = ["session", "artifacts", "agents", "previews"]
 
 const AGENTS_KEY = ["agents"]
 
@@ -30,6 +31,13 @@ export const renameAgentAtom = ApiClient.mutation("agents", "rename")
 export const createSetupAtom = ApiClient.mutation("agents", "createSetup")
 export const revokeSetupAtom = ApiClient.mutation("agents", "revokeSetup")
 export const invalidateAgents = AGENTS_KEY
+
+const PREVIEWS_KEY = ["previews"]
+
+/** Dev servers shared with `sloppa preview run`, live for as long as that runs. */
+export const previewsAtom = ApiClient.query("previews", "list", { reactivityKeys: [...SESSION_KEY, ...PREVIEWS_KEY] })
+export const stopPreviewAtom = ApiClient.mutation("previews", "stop")
+export const invalidatePreviews = PREVIEWS_KEY
 
 /** Invalidated by uploads/deletes made from this tab. */
 const ARTIFACTS_KEY = ["artifacts"]

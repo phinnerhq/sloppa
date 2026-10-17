@@ -2,7 +2,7 @@
  * Builds the background wallpaper tile from Phosphor icons (MIT, bold weight):
  * a staggered grid where each icon gets a seeded tilt, scale and nudge, so the
  * pattern reads as scattered doodles rather than a grid. Re-run after changing
- * the icon list: `bun run doodles`.
+ * the icon list: `pnpm doodles`.
  */
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
@@ -34,7 +34,7 @@ const ICON = 30
 const INK = "#1d2433"
 const OPACITY = 0.09
 
-const assets = join(import.meta.dir, "../node_modules/@phosphor-icons/core/assets/bold")
+const assets = join(import.meta.dirname, "../node_modules/@phosphor-icons/core/assets/bold")
 const inner = (name: string) =>
   readFileSync(join(assets, `${name}-bold.svg`), "utf8")
     .replace(/^<svg[^>]*>/, "")
@@ -81,6 +81,6 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${TILE}" height="${T
 </svg>
 `
 
-const out = join(import.meta.dir, "../apps/web/src/assets/doodles.svg")
+const out = join(import.meta.dirname, "../apps/web/src/assets/doodles.svg")
 writeFileSync(out, svg)
 console.log(`wrote ${out} (${glyphs.length} glyphs, ${(svg.length / 1024).toFixed(1)} KB)`)

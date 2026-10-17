@@ -44,6 +44,8 @@ const byExtension: Record<string, string> = {
 export const resolveContentType = (name: string, declared: string | undefined) => {
   const type = (declared ?? "").trim()
   if (type !== "" && type !== "application/octet-stream") return type
-  const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase()
+  // No dot, or only a dotfile's leading one: no extension, whatever the name spells.
+  const dot = name.lastIndexOf(".")
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
   return byExtension[extension] ?? "application/octet-stream"
 }

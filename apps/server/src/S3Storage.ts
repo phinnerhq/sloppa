@@ -5,13 +5,13 @@ import { DateTime, Effect, Layer, Option, Predicate, Stream } from "effect"
 import { FetchHttpClient, type HttpClient } from "effect/http"
 import type { S3Config } from "./Config.ts"
 import {
-  type ArtifactStorage,
+  type ArtifactStore,
   legacyCollection,
   type PutInput,
   readAll,
   skipUnreadable,
   type StoredArtifact
-} from "./Storage.ts"
+} from "./StorageShared.ts"
 
 const PREFIX = "artifacts/"
 const keyOf = (id: string) => `${PREFIX}${id}`
@@ -26,6 +26,19 @@ const decodeMeta = (value: string | undefined) => {
     return value
   }
 }
+
+/** An object's metadata, as `put` writes it, read back as an artifact; objects from older versions included. */
+export const fromHead = (id: ArtifactId, head: S3.HeadObjectOutput): StoredArtifact => ({
+  id,
+  name: decodeMeta(head.Metadata?.["name"]) ?? id,
+  contentType: head.ContentType ?? "application/octet-stream",
+  size: head.ContentLength ?? 0,
+  // S3's LastModified only has second precision; keep upload order exact.
+  createdAt: DateTime.makeUnsafe(Number(head.Metadata?.["uploaded-at"]) || head.LastModified?.getTime() || 0),
+  collection:
+    decodeMeta(head.Metadata?.["collection"]) ??
+    legacyCollection(decodeMeta(head.Metadata?.["repo"]), decodeMeta(head.Metadata?.["pr"]))
+})
 
 const toStorageError = (cause: { readonly _tag: string; readonly message?: string | undefined }) =>
   new StorageError({ message: cause.message ? `${cause._tag}: ${cause.message}` : cause._tag })
@@ -46,18 +59,6 @@ export const makeS3Storage = (s3: S3Config) =>
       ),
       Effect.orDie
     )
-
-    const fromHead = (id: ArtifactId, head: S3.HeadObjectOutput): StoredArtifact => ({
-      id,
-      name: decodeMeta(head.Metadata?.["name"]) ?? id,
-      contentType: head.ContentType ?? "application/octet-stream",
-      size: head.ContentLength ?? 0,
-      // S3's LastModified only has second precision; keep upload order exact.
-      createdAt: DateTime.makeUnsafe(Number(head.Metadata?.["uploaded-at"]) || head.LastModified?.getTime() || 0),
-      collection:
-        decodeMeta(head.Metadata?.["collection"]) ??
-        legacyCollection(decodeMeta(head.Metadata?.["repo"]), decodeMeta(head.Metadata?.["pr"]))
-    })
 
     const head = Effect.fn("ArtifactStorage.head")(function* (id: ArtifactId) {
       const output = yield* run(S3.headObject({ Bucket, Key: keyOf(id) })).pipe(
@@ -153,7 +154,7 @@ export const makeS3Storage = (s3: S3Config) =>
       return { ...artifact, collection }
     })
 
-    const service: ArtifactStorage["Service"] = { put, head, read, scan, remove, setCollection }
+    const service: ArtifactStore = { put, head, read, scan, remove, setCollection }
     return service
   }).pipe(
     Effect.provide(

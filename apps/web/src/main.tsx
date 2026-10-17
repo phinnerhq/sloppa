@@ -1,35 +1,27 @@
-import { RegistryProvider, useAtomSet } from "@effect/atom-react"
-import { IconContext, PackageIcon, SignOutIcon } from "@phosphor-icons/react"
+import { RegistryProvider } from "@effect/atom-react"
 import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
-import { invalidateSession, logoutAtom } from "./api.ts"
+import { Account } from "./components/Account.tsx"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
 import { ConnectAgent } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
 import { useSignedIn } from "./components/Login.tsx"
-import { Button, Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
+import { Previews } from "./components/Previews.tsx"
+import { Doodles, Floppa, scrollbars, Toaster } from "./components/ui.tsx"
 import "./index.css"
 import { type Direction, type Navigation, onLinkClick, type Route, useBeforeNavigate, useRoute } from "./router.ts"
+import { CopyrightIcon } from "./components/Icon"
 
 const Session = () => {
-  const logout = useAtomSet(logoutAtom)
   if (!useSignedIn()) return null
   return (
     <>
+      <Previews />
       <ConnectAgent />
-      {/* Square, and as tall as the title beside it (whose face is 50px), so both sit on the same line. */}
-      <Button
-        onClick={() => logout({ reactivityKeys: invalidateSession })}
-        aria-label="Sign out"
-        title="Sign out"
-        size="icon"
-        className="[&>.pressable-face]:size-12.5"
-      >
-        <SignOutIcon size={20} />
-      </Button>
+      <Account />
     </>
   )
 }
@@ -48,8 +40,8 @@ const Footer = ({ ref }: { ref: Ref<HTMLElement> }) => (
   <footer ref={ref} className="panel mt-16 flex flex-col items-center gap-3 px-5 py-3 sm:flex-row sm:justify-between">
     <p className="flex items-center gap-2.5 font-game text-base">
       <Floppa mood="loaf" className="h-9 w-auto" />
-      <span>
-        made by{" "}
+      <span className="flex items-center gap-1">
+        <CopyrightIcon size={16} aria-label="Copyright" /> 2026{" "}
         <FooterLink href="https://phinner.dev" external>
           phinner
         </FooterLink>
@@ -242,9 +234,8 @@ const App = () => {
         <a href="/" onClick={onLinkClick("/")} className="pressable pressable-card mt-5">
           <span className="pressable-face flex items-center gap-3 py-1.5 pr-3 pl-2 sm:pr-4">
             <Floppa mood="hiss" className="-mt-9 -mb-3 h-20 w-auto" />
-            {/* A notch smaller on phones, and without the box, so the header buttons still fit beside it. */}
-            <span className="font-game text-xl leading-none sm:text-2xl">sloppa artifacts</span>
-            <PackageIcon size={26} className="-ml-1 hidden shrink-0 sm:block" />
+            {/* A notch smaller on phones, so the header buttons still fit beside it. */}
+            <span className="font-game text-xl leading-none sm:text-2xl">sloppa</span>
           </span>
         </a>
         <div className="flex items-center gap-2 sm:gap-2.5">
@@ -264,11 +255,9 @@ OverlayScrollbars(document.body, scrollbars("move"))
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RegistryProvider>
-      <IconContext.Provider value={{ weight: "bold" }}>
-        <MotionConfig reducedMotion="user">
-          <App />
-        </MotionConfig>
-      </IconContext.Provider>
+      <MotionConfig reducedMotion="user">
+        <App />
+      </MotionConfig>
     </RegistryProvider>
   </StrictMode>
 )

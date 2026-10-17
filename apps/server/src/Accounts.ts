@@ -1,16 +1,17 @@
-import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun"
+import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node"
 import { InvalidCredentials, TooManyAttempts } from "@sloppa/api"
 import { Context, DateTime, Duration, Effect, FileSystem, Layer, Option, Path, Redacted } from "effect"
 import { SqlClient } from "effect/sql"
 import { createHash, randomBytes } from "node:crypto"
 import { AppConfig } from "./Config.ts"
+import { hashPassword, verifyPassword } from "./Password.ts"
 
 export interface Account {
   readonly id: number
   readonly username: string
 }
 
-export interface AgentCredential {
+interface AgentCredential {
   readonly id: string
   readonly name: string
   readonly createdAt: DateTime.Utc
@@ -99,7 +100,12 @@ const Migrations = SqliteMigrator.layer({
       `
       yield* sql`CREATE INDEX credentials_user ON credentials (user_id, kind, created_ms DESC)`
       yield* sql`CREATE TABLE secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL)`
-    })
+    }),
+    // The BOOTSTRAP_PASSWORD last applied, hashed: one left set mustn't undo a password changed since.
+    "0002_bootstrap_seed": Effect.flatMap(
+      SqlClient.SqlClient,
+      (sql) => sql`ALTER TABLE users ADD COLUMN seed_hash TEXT`
+    )
   })
 })
 
@@ -113,14 +119,10 @@ const Sqlite = Layer.unwrap(
   })
 )
 
-const hashPassword = (password: Redacted.Redacted<string>) =>
-  Effect.promise(() => Bun.password.hash(Redacted.value(password)))
-const verifyPassword = (password: string, hash: string) => Effect.promise(() => Bun.password.verify(password, hash))
-
 /**
  * Users, and everything that signs in as one. Unlike the index this isn't derived from storage, so
  * `DATA_DIR/accounts.sqlite` is the one file to keep. The first user comes from `BOOTSTRAP_USERNAME`
- * and `BOOTSTRAP_PASSWORD`.
+ * and `BOOTSTRAP_PASSWORD`, which can go once it exists.
  */
 export class Accounts extends Context.Service<
   Accounts,
@@ -135,6 +137,13 @@ export class Accounts extends Context.Service<
       InvalidCredentials | TooManyAttempts
     >
     readonly logout: (session: string) => Effect.Effect<void>
+    /** Throttled like a sign-in. Signs out every other browser; `session` stays signed in. */
+    readonly changePassword: (
+      account: Account,
+      session: string,
+      current: string,
+      next: string
+    ) => Effect.Effect<void, InvalidCredentials | TooManyAttempts>
     /** Who a session cookie or an agent token belongs to. */
     readonly authenticate: (kind: "session" | "agent", token: string) => Effect.Effect<Option.Option<Account>>
     readonly agents: (account: Account) => Effect.Effect<ReadonlyArray<AgentCredential>>
@@ -173,8 +182,8 @@ export class Accounts extends Context.Service<
       const nowMs = Effect.map(DateTime.now, DateTime.toEpochMillis)
 
       const findUser = (username: string) =>
-        sql<{ id: number; username: string; password_hash: string }>`
-          SELECT id, username, password_hash FROM users WHERE username = ${username}
+        sql<{ id: number; username: string; password_hash: string; seed_hash: string | null }>`
+          SELECT id, username, password_hash, seed_hash FROM users WHERE username = ${username}
         `.pipe(
           Effect.map((rows) => Option.fromNullishOr(rows[0])),
           Effect.orDie
@@ -182,21 +191,34 @@ export class Accounts extends Context.Service<
 
       if (bootstrapUser !== undefined) {
         const existing = yield* findUser(bootstrapUser.username)
+        const unset = "BOOTSTRAP_PASSWORD can go now: change the password from the account menu"
         if (Option.isNone(existing)) {
+          const hash = yield* hashPassword(bootstrapUser.password)
           yield* sql`INSERT INTO users ${sql.insert({
             username: bootstrapUser.username,
-            password_hash: yield* hashPassword(bootstrapUser.password),
+            password_hash: hash,
+            seed_hash: hash,
             created_ms: yield* nowMs
           })}`.pipe(Effect.orDie)
-          yield* Effect.logInfo(`Created the user ${bootstrapUser.username}`)
-        } else if (!(yield* verifyPassword(Redacted.value(bootstrapUser.password), existing.value.password_hash))) {
-          // A new bootstrap password is how one gets reset: whoever knew the old one is signed out.
-          yield* sql`UPDATE users SET password_hash = ${yield* hashPassword(bootstrapUser.password)}
-            WHERE id = ${existing.value.id}`.pipe(Effect.orDie)
-          yield* sql`DELETE FROM credentials WHERE user_id = ${existing.value.id} AND kind = 'session'`.pipe(
-            Effect.orDie
-          )
-          yield* Effect.logInfo(`Reset the password of ${bootstrapUser.username}`)
+          yield* Effect.logInfo(`Created the user ${bootstrapUser.username}. ${unset}`)
+        } else {
+          // Users from before seeds were kept were last given the bootstrap password itself.
+          const seed = existing.value.seed_hash ?? existing.value.password_hash
+          if (yield* verifyPassword(Redacted.value(bootstrapUser.password), seed)) {
+            yield* sql`UPDATE users SET seed_hash = ${seed} WHERE id = ${existing.value.id}`.pipe(Effect.orDie)
+            yield* Effect.logInfo(
+              "BOOTSTRAP_PASSWORD is still set but only matters when it changes, to reset the password: it can go"
+            )
+          } else {
+            // A new bootstrap password is how one gets reset: whoever knew the old one is signed out.
+            const hash = yield* hashPassword(bootstrapUser.password)
+            yield* sql`UPDATE users SET password_hash = ${hash}, seed_hash = ${hash}
+              WHERE id = ${existing.value.id}`.pipe(Effect.orDie)
+            yield* sql`DELETE FROM credentials WHERE user_id = ${existing.value.id} AND kind = 'session'`.pipe(
+              Effect.orDie
+            )
+            yield* Effect.logInfo(`Reset the password of ${bootstrapUser.username}. ${unset}`)
+          }
         }
       }
       const [users] = yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM users`.pipe(Effect.orDie)
@@ -268,6 +290,20 @@ export class Accounts extends Context.Service<
           const session = secret(32)
           const { expiresAt } = yield* issue("session", user.value.id, { token: session, ttl: SESSION_TTL })
           return { account: { id: user.value.id, username: user.value.username }, session, expiresAt: expiresAt! }
+        }),
+        changePassword: Effect.fn("Accounts.changePassword")(function* (account, session, current, next) {
+          const keys = [`user:${account.username.toLowerCase()}`]
+          const wait = throttle.attempt(keys, yield* nowMs)
+          if (wait > 0) return yield* new TooManyAttempts({ retryAfter: Math.ceil(wait / 1000) })
+          const user = yield* findUser(account.username)
+          if (Option.isNone(user) || !(yield* verifyPassword(current, user.value.password_hash))) {
+            return yield* new InvalidCredentials()
+          }
+          throttle.succeeded(keys)
+          yield* sql`UPDATE users SET password_hash = ${yield* hashPassword(Redacted.make(next))}
+            WHERE id = ${account.id}`.pipe(Effect.orDie)
+          yield* sql`DELETE FROM credentials
+            WHERE user_id = ${account.id} AND kind = 'session' AND hash != ${hashOf(session)}`.pipe(Effect.orDie)
         }),
         logout: (session) =>
           sql`DELETE FROM credentials WHERE hash = ${hashOf(session)} AND kind = 'session'`.pipe(

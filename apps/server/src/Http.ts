@@ -23,8 +23,10 @@ import { Accounts } from "./Accounts.ts"
 import { Artifacts } from "./Artifacts.ts"
 import { AppConfig } from "./Config.ts"
 import { McpRoutes } from "./Mcp.ts"
+import { Previews } from "./Previews.ts"
 import { SetupRoute, setupPrompt } from "./Setup.ts"
-import { ArtifactStorage, uploadOf } from "./Storage.ts"
+import { ArtifactStorage } from "./Storage.ts"
+import { uploadOf } from "./StorageShared.ts"
 import { Thumbnails } from "./Thumbnails.ts"
 import { UploadTickets } from "./Tickets.ts"
 
@@ -68,7 +70,7 @@ const SessionAuthorizationLive = Layer.effect(
     const holder = holderOf(yield* Accounts)
     return SessionAuthorization.of({
       session: (httpEffect, { credential }) =>
-        Effect.flatMap(holder("session", credential, "Sign in to manage agents"), (user) =>
+        Effect.flatMap(holder("session", credential, "Sign in from a browser for this"), (user) =>
           Effect.provideService(httpEffect, CurrentUser, user)
         )
     })
@@ -98,6 +100,10 @@ const SessionHandlers = HttpApiBuilder.group(
           )
         ),
       current: () => Effect.map(CurrentUser, (user) => new User({ username: user.username })),
+      changePassword: ({ payload, request }) =>
+        Effect.flatMap(CurrentUser, (user) =>
+          accounts.changePassword(user, request.cookies[SESSION_COOKIE] ?? "", payload.current, payload.next)
+        ),
       logout: () =>
         Effect.gen(function* () {
           const session = (yield* HttpServerRequest.HttpServerRequest).cookies[SESSION_COOKIE]
@@ -193,6 +199,19 @@ const ArtifactsHandlers = HttpApiBuilder.group(
   })
 )
 
+const PreviewsHandlers = HttpApiBuilder.group(
+  Api,
+  "previews",
+  Effect.fn(function* (handlers) {
+    const previews = yield* Previews
+    return handlers.handleAll({
+      list: () => Effect.flatMap(CurrentUser, previews.list),
+      start: ({ payload }) => Effect.flatMap(CurrentUser, (user) => previews.start(user, payload)),
+      stop: ({ params }) => Effect.flatMap(CurrentUser, (user) => previews.stop(user, params.id))
+    })
+  })
+)
+
 const contentDisposition = (type: "inline" | "attachment", name: string) =>
   `${type}; filename="${name.replace(/[^\x20-\x7e]|"/g, "_")}"; filename*=UTF-8''${encodeURIComponent(name)}`
 
@@ -284,7 +303,7 @@ const ThumbnailRoute = Layer.effectDiscard(
  * The request log, naming `path` instead of the real one: these routes carry a secret in theirs.
  * Provided to a route's layer, it applies to that route alone.
  */
-export const logAs = (path: string) =>
+const logAs = (path: string) =>
   HttpRouter.middleware((httpApp) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
@@ -352,7 +371,7 @@ const StaticFiles = Layer.unwrap(
 
 export const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/api/openapi.json" }).pipe(
-    Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers)),
+    Layer.provide(Layer.mergeAll(ArtifactsHandlers, SessionHandlers, AgentsHandlers, PreviewsHandlers)),
     Layer.provide(Layer.mergeAll(AuthorizationLive, SessionAuthorizationLive))
   ),
   RawFileRoute,
@@ -361,4 +380,7 @@ export const Routes = Layer.mergeAll(
   McpRoutes,
   SetupRoute.pipe(Layer.provide(logAs("/setup/<code>"))),
   StaticFiles
-).pipe(Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer)), Layer.provideMerge(Accounts.layer))
+).pipe(
+  Layer.provide(Layer.mergeAll(Artifacts.layer, UploadTickets.layer, Previews.layer)),
+  Layer.provideMerge(Accounts.layer)
+)

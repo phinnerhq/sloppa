@@ -11,20 +11,26 @@ import {
 import { OverlayScrollbars, type PartialOptions } from "overlayscrollbars"
 
 /** Overlay scrollbars, styled as `os-theme-sloppa`: they float over content, so nothing shifts when one appears. */
-export const scrollbars = (autoHide: "move" | "never"): PartialOptions => ({
-  scrollbars: { theme: "os-theme-sloppa", autoHide, autoHideDelay: 900, clickScroll: true }
+export const scrollbars = (
+  autoHide: "move" | "never",
+  theme: "os-theme-sloppa" | "os-theme-sloppa-cream" = "os-theme-sloppa"
+): PartialOptions => ({
+  scrollbars: { theme, autoHide, autoHideDelay: 900, clickScroll: true }
 })
 
 /**
- * Ref for a scrolling list inside a popup: the popup carries an overlay scrollbar, the list stays the
- * scroller (Base UI scrolls the highlighted option into view) and just loses its native bar.
+ * Ref for an element that scrolls inside a frame, its parent: the frame carries an overlay scrollbar,
+ * and the element stays the scroller, so code that scrolls it keeps working, and just loses its native bar.
  */
-export const overlayScrollbar = (list: HTMLElement | null) => {
-  const popup = list?.parentElement
-  if (list == null || popup == null) return
-  const instance = OverlayScrollbars({ target: popup, elements: { viewport: list } }, scrollbars("never"))
+export const overlayScrollbarWith = (options: PartialOptions) => (scroller: HTMLElement | null) => {
+  const frame = scroller?.parentElement
+  if (scroller == null || frame == null) return
+  const instance = OverlayScrollbars({ target: frame, elements: { viewport: scroller } }, options)
   return () => instance.destroy()
 }
+
+/** For a scrolling list inside a popup, which Base UI scrolls to keep the highlighted option in view. */
+export const overlayScrollbar = overlayScrollbarWith(scrollbars("never"))
 
 export type Mood = "stare" | "hiss" | "loaf"
 
@@ -64,6 +70,16 @@ export const Floppa = ({
       className={`select-none ${flop === "loop" ? "animate-flop-loop" : (trick.current ?? "")} ${className}`}
     />
   )
+}
+
+/** Re-renders every `ms`, for countdowns and "used 2 minutes ago". */
+export const useNow = (ms: number) => {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), ms)
+    return () => clearInterval(timer)
+  }, [ms])
+  return now
 }
 
 const toastAtom = Atom.make<{ readonly id: number; readonly text: string } | null>(null).pipe(Atom.keepAlive)

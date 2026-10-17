@@ -65,7 +65,8 @@
 }
 
 /* The page's overlay scrollbar (OverlayScrollbars on <body>, see main.tsx): an ink pill that never takes layout space. */
-.os-theme-sloppa {
+.os-theme-sloppa,
+.os-theme-sloppa-cream {
   --os-size: 14px;
   --os-padding-perpendicular: 3px;
   --os-padding-axis: 4px;
@@ -79,6 +80,16 @@
   --os-handle-perpendicular-size-hover: 100%;
   --os-handle-perpendicular-size-active: 100%;
   --os-handle-interactive-area-offset: 4px;
+}
+
+/* The lightbox's, over the dark backdrop and whatever the image is: a cream pill with an ink rim. */
+.os-theme-sloppa-cream {
+  --os-handle-bg: var(--color-cream);
+  --os-handle-bg-hover: var(--color-belly);
+  --os-handle-bg-active: var(--color-gold);
+  & .os-scrollbar-handle {
+    outline: 2px solid var(--color-ink);
+  }
 }
 
 @layer components {

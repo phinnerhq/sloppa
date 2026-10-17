@@ -1,5 +1,4 @@
 import { useAtomValue } from "@effect/atom-react"
-import { ArrowLeftIcon } from "@phosphor-icons/react"
 import type { Stats } from "@sloppa/api"
 import { Predicate } from "effect"
 import { AsyncResult } from "effect/reactivity"
@@ -21,6 +20,7 @@ import { AgentSetup } from "./Connect.tsx"
 import { Mosaic } from "./Mosaic.tsx"
 import { SearchBar } from "./SearchBar.tsx"
 import { ButtonLink, Floppa, Notice } from "./ui.tsx"
+import { ArrowLeftIcon } from "./Icon"
 
 /** Two wave layers drifting against each other, offset per card so they never slosh in sync. */
 const Liquid = ({ color, delay }: { color: string; delay: number }) => (

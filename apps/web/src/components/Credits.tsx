@@ -1,7 +1,7 @@
-import { ArrowLeftIcon, ArrowSquareOutIcon, CodeIcon, GlobeIcon } from "@phosphor-icons/react"
 import type { ReactNode } from "react"
 import { listPath, onLinkClick } from "../router.ts"
 import { ButtonLink, Floppa, type Mood } from "./ui.tsx"
+import { ArrowLeftIcon, ArrowSquareOutIcon, CodeIcon, GlobeIcon } from "./Icon"
 
 const SITE = "https://phinner.dev"
 const REPO = "https://github.com/phinnerhq/sloppa-artifacts"
@@ -52,8 +52,11 @@ const LOOKS: ReadonlyArray<Entry> = [
 const STACK: ReadonlyArray<Entry> = [
   ["Effect", "https://effect.website", "MIT", "server, MCP, API and client state"],
   ["React", "https://react.dev", "MIT", "the app you're looking at"],
-  ["Bun", "https://bun.sh", "MIT", "runtime, bundler and SQLite"],
+  ["Node.js", "https://nodejs.org", "MIT", "runtime and SQLite"],
+  ["sharp", "https://sharp.pixelplumbing.com", "Apache 2.0", "thumbnails"],
+  ["ws", "https://github.com/websockets/ws", "MIT", "preview tunnels"],
   ["Vite", "https://vite.dev", "MIT", "web build"],
+  ["Rolldown", "https://rolldown.rs", "MIT", "the server and CLI bundles"],
   ["Tailwind CSS", "https://tailwindcss.com", "MIT", "styling"],
   ["distilled", "https://github.com/alchemy-run/distilled", "Apache 2.0", "the S3 client"]
 ]
@@ -96,10 +99,8 @@ export const Credits = () => (
     <div className="panel animate-pop-in flex flex-col items-center gap-4 px-6 py-8 text-center sm:flex-row sm:text-left">
       <Floppa mood="stare" className="h-32 w-auto shrink-0" />
       <div className="space-y-3">
-        <p className="font-game text-3xl leading-tight">made by phinner</p>
-        <p className="font-semibold text-ink/70">
-          Part of <span className="font-extrabold text-ink">sloppa</span>, your line of personal slop software.
-        </p>
+        <p className="font-game text-3xl leading-tight">sloppa</p>
+        <p className="font-semibold text-ink/70">Simple tools for your agentic slop.</p>
         <div className="flex flex-wrap justify-center gap-2.5 sm:justify-start">
           <ButtonLink href={SITE} target="_blank" rel="noreferrer" tone="blue">
             <GlobeIcon size={18} /> phinner.dev

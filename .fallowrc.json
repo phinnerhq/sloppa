@@ -1,0 +1,37 @@
+{
+  // This file is JSONC: fallow reads these comments; generic JSON tools may not.
+  "$schema": "./node_modules/fallow/schema.json",
+  "entry": [
+    "src/index.{ts,tsx,js,jsx}",
+    "src/main.{ts,tsx,js,jsx}",
+    // The dev server the CLI's end-to-end tests run, started by path.
+    "apps/cli/test/fixture.ts"
+  ],
+  // scripts/doodles.ts reads its SVGs straight from node_modules, by path.
+  "ignoreDependencies": ["@phosphor-icons/core"],
+  "workspaces": {
+    "patterns": ["packages/*", "apps/*"]
+  },
+  "health": {
+    "ignore": [
+      // Test code itself, harness and fixture dev server included: there's nothing to cover it with.
+      "apps/*/test/**",
+      // The browser UI: no component tests for now. router.ts reads `window` on import, so it goes
+      // with them; the web app's pure modules, like format.ts, are tested and checked.
+      "apps/web/src/**/*.tsx",
+      "apps/web/src/router.ts"
+    ]
+  },
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste
+    // worth refactoring. Lower to 2 to report every duplicate pair.
+    "minOccurrences": 3
+  },
+  "rules": {
+    "unused-dependencies": "warn",
+    // CRAP weighs complexity by test coverage, and `check` has none to give it: fallow's estimate
+    // counts imports from tests, while the end-to-end suites run the server and CLI as processes.
+    // CI measures it for real with .fallowrc.ci.json. Cyclomatic and cognitive complexity stay errors.
+    "complexity-crap": "warn"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  // CI, after `pnpm test` ran with NODE_V8_COVERAGE=coverage/v8: CRAP measured against that real
+  // coverage fails the run. Everything else comes from the main config, where `check` has no
+  // coverage and CRAP only warns.
+  "$schema": "./node_modules/fallow/schema.json",
+  "extends": ".fallowrc.json",
+  "health": {
+    "coverage": "coverage/v8"
+  },
+  "rules": {
+    "complexity-crap": "error"
+  }
+}

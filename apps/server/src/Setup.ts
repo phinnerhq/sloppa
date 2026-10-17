@@ -3,17 +3,19 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { AGENT_NAME_MAX } from "@sloppa/api"
 import { Accounts } from "./Accounts.ts"
 
-const NAME = "sloppa-artifacts"
+const NAME = "sloppa"
+/** What setups named the server before the app was renamed: replaced, so no agent ends up with both. */
+const FORMER_NAME = "sloppa-artifacts"
 
 /**
  * The whole setup, out in the open for the user to read before pasting it. The agent knows its own
  * app's MCP setup best; the link only answers with a token, which it never has to see.
  */
 export const setupPrompt = (publicUrl: string, setupUrl: string) =>
-  `Install Sloppa Artifacts for PR screenshots and recordings in your app.
+  `Install sloppa for PR screenshots, recordings and dev server previews in your app.
 
 1. Find your app's supported MCP configuration method.
-   Use user scope for all projects, replacing any server named ${NAME}.
+   Use user scope for all projects. Name the server ${NAME}, replacing any named ${NAME} or ${FORMER_NAME}.
    Configure streamable HTTP at ${publicUrl}/mcp with "Authorization: Bearer <token>".
 
 2. Keep tool output and chat free of the token, including configuration readbacks.
@@ -79,7 +81,7 @@ export const SetupRoute = Layer.effectDiscard(
           Math.round((DateTime.toEpochMillis(expiry.value) - DateTime.toEpochMillis(yield* DateTime.now)) / 60_000)
         )
         return text(
-          `This Sloppa Artifacts setup link works for ${minutes} more minute(s). Opening it does nothing: paste the setup prompt from the dashboard into an agent, and its command trades this link for a token.\n`
+          `This sloppa setup link works for ${minutes} more minute(s). Opening it does nothing: paste the setup prompt from the dashboard into an agent, and its command trades this link for a token.\n`
         )
       })
     )

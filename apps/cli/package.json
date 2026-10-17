@@ -1,0 +1,26 @@
+{
+  "name": "@sloppa/cli",
+  "private": true,
+  "bin": {
+    "sloppa": "./dist/sloppa.mjs"
+  },
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "build": "rolldown -c"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.4",
+    "@sloppa/api": "workspace:*",
+    "@sloppa/preview": "workspace:*",
+    "effect": "4.0.4",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "rolldown": "^1.2.14"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,5 +1,4 @@
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import { PlayIcon } from "@phosphor-icons/react"
 import type { Artifact } from "@sloppa/api"
 import { Predicate } from "effect"
 import { AsyncResult, type Atom } from "effect/reactivity"
@@ -9,6 +8,7 @@ import { colorFor, formatAgoShort, formatSize, kindOf, pullRequestUrl } from "..
 import { onLinkClick } from "../router.ts"
 import { Login } from "./Login.tsx"
 import { extensionOf, Notice } from "./ui.tsx"
+import { PlayFillIcon } from "./Icon"
 
 /**
  * Ref for an `.offscreen-skip` card: lets it skip rendering while out of sight, two frames after it
@@ -52,13 +52,13 @@ const VideoThumbnail = ({ artifact }: { artifact: Artifact }) => {
       {near ? (
         <video src={`${artifact.rawUrl}#t=0.1`} preload="metadata" muted className="size-full object-contain" />
       ) : (
-        <PlayIcon size={32} weight="fill" className="text-ink/60" />
+        <PlayFillIcon size={32} className="text-ink/60" />
       )}
     </div>
   )
 }
 
-export const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
+const Thumbnail = ({ artifact }: { artifact: Artifact }) => {
   switch (kindOf(artifact)) {
     case "image":
       return (
