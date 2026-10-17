@@ -30,9 +30,11 @@ afterAll(async () => {
 
 it("serves a dev server started through npm, and stops all of it from sloppa", async () => {
   // npm is a .cmd shim on Windows, which Node only runs through cmd.exe. Run from outside this repo,
-  // as in an agent's own project: npm would otherwise hold it to this repo's devEngines.
+  // as in an agent's own project: npm would otherwise hold it to this repo's devEngines. Node by its
+  // path, since npm exec looks for a bare `node` without the .exe and would fetch the npm package
+  // of that name instead; offline, so it fails rather than tries.
   const args = ["two words", "amp & pipe |", 'quote"d', "%PATH%"]
-  const preview = await run(sloppa, [], ["npm", "exec", "--", "node", fixture, ...args], work)
+  const preview = await run(sloppa, [], ["npm", "exec", "--offline", "--", process.execPath, fixture, ...args], work)
   const [server, grandchild] = preview.pids()
 
   const body = (await (await fetch(`${preview.url}hello`)).json()) as { path: string; args: Array<string> }

@@ -301,7 +301,9 @@ export const run = async (
 ): Promise<Running> => {
   const pidFile = join(work, `pids-${randomBytes(4).toString("hex")}`)
   const { child, stderr, exited } = spawnCli(sloppa, flags, { FIXTURE_PIDS: pidFile }, command, cwd)
-  await waitFor(() => stderr().includes("preview_ready:") || child.exitCode !== null, "the preview")
+  await waitFor(() => stderr().includes("preview_ready:") || child.exitCode !== null, "the preview").catch(
+    (error: Error) => Promise.reject(new Error(`${error.message}, the CLI said:\n${stderr()}`))
+  )
   const url = /preview_url: (\S+)/.exec(stderr())?.[1]
   const id = /preview_id: (\S+)/.exec(stderr())?.[1]
   if (url === undefined || id === undefined) throw new Error(`no preview:\n${stderr()}`)
