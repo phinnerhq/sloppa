@@ -19,13 +19,14 @@ export interface SpawnCommand {
 
 /** cmd.exe's metacharacters, caret-escaped outside and inside quotes alike. */
 const WINDOWS_SHELL_META_CHARS = /([()\][%!^"`<>&|;, *?])/g
+const escapeMetaChars = (text: string) => text.replace(WINDOWS_SHELL_META_CHARS, "^$1")
 
 /** One argument for a cmd.exe command line, read back as itself by the program it starts. */
 export const escapeWindowsShellArg = (arg: string) => {
   let escaped = arg.replace(/(\\*)"/g, '$1$1\\"')
   // Double up trailing backslashes so the closing quote is not escaped away.
   escaped = escaped.replace(/(\\*)$/, "$1$1")
-  return `"${escaped}"`.replace(WINDOWS_SHELL_META_CHARS, "^$1")
+  return escapeMetaChars(`"${escaped}"`)
 }
 
 const isFile = (path: string) => {
@@ -83,5 +84,8 @@ export const resolveSpawnCommand = (
   const extension = win32.extname(resolved).toLowerCase()
   if (extension !== ".cmd" && extension !== ".bat") return { command: resolved, args, shell: false }
   // Node runs a shell spawn as `cmd.exe /d /s /c "<line>"`: build the escaped line, pass no args.
-  return { command: [resolved, ...args].map(escapeWindowsShellArg).join(" "), args: [], shell: true }
+  // The shim hands its arguments on with %*, which cmd.exe parses once more: so they're escaped
+  // twice, like cross-spawn does, or a quote inside one turns the next one's `|` loose.
+  const line = [escapeWindowsShellArg(resolved), ...args.map((arg) => escapeMetaChars(escapeWindowsShellArg(arg)))]
+  return { command: line.join(" "), args: [], shell: true }
 }

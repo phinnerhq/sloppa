@@ -269,7 +269,8 @@ export const stopStarted = async () => {
   started.clear()
 }
 
-export const removeWork = () => rmSync(work, { recursive: true, force: true })
+// Windows holds on to a directory for a moment after the last process in it exits.
+export const removeWork = () => rmSync(work, { recursive: true, force: true, maxRetries: 10 })
 
 /** The fixture, as the dev server a preview runs unless a test gives another command. */
 const fixtureCommand = [process.execPath, fixture]

@@ -45,7 +45,6 @@ jobs:
       - name: "Install Dependencies"
         run: pnpm install --frozen-lockfile
 
-      # The same on every platform, so Linux alone runs it
       - name: "Typecheck, Lint and Format"
         run: pnpm run check
 

@@ -48,7 +48,8 @@ describe("resolveSpawnCommand", () => {
   it("runs a Windows .cmd shim through cmd.exe as one escaped line", () => {
     const exists = (path: string) => path === "C:\\Program Files\\nodejs\\pnpm.CMD"
     expect(resolveSpawnCommand("pnpm", ["dev", "--port", "3000"], { ...windows, exists })).toEqual({
-      command: '"C:\\Program^ Files\\nodejs\\pnpm.CMD" "dev" "--port" "3000"'.replace(/"/g, '^"'),
+      // The arguments twice, since the shim's %* is parsed again.
+      command: '^"C:\\Program^ Files\\nodejs\\pnpm.CMD^" ^^^"dev^^^" ^^^"--port^^^" ^^^"3000^^^"',
       args: [],
       shell: true
     })
