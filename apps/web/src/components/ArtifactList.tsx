@@ -88,7 +88,7 @@ const StatsRow = ({ stats }: { stats: Stats | null }) => (
 
 const NoArtifacts = () => (
   <Notice title="no artifacts yet" mood="loaf">
-    <p>connect an agent over MCP, then ask it to attach screenshots to its PRs:</p>
+    <p>set an agent up with the sloppa CLI, then ask it to attach screenshots to its PRs:</p>
     <div className="mx-auto mt-4 max-w-md">
       <AgentSetup />
     </div>

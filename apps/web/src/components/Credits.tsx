@@ -4,7 +4,7 @@ import { ButtonLink, Floppa, type Mood } from "./ui.tsx"
 import { ArrowLeftIcon, ArrowSquareOutIcon, CodeIcon, GlobeIcon } from "./Icon"
 
 const SITE = "https://phinner.dev"
-const REPO = "https://github.com/phinnerhq/sloppa-artifacts"
+const REPO = "https://github.com/phinnerhq/sloppa"
 
 const PHOTOS: ReadonlyArray<{
   mood: Mood
@@ -50,15 +50,17 @@ const LOOKS: ReadonlyArray<Entry> = [
 ]
 
 const STACK: ReadonlyArray<Entry> = [
-  ["Effect", "https://effect.website", "MIT", "server, MCP, API and client state"],
+  ["Go", "https://go.dev", "BSD 3-Clause", "the server and CLI"],
+  ["Huma", "https://huma.rocks", "MIT", "the HTTP API and its OpenAPI document"],
+  ["SQLite", "https://sqlite.org", "public domain", "accounts and the index, through modernc.org/sqlite"],
+  ["yamux", "https://github.com/hashicorp/yamux", "MPL 2.0", "preview tunnels, over coder/websocket"],
+  ["webp", "https://github.com/gen2brain/webp", "MIT", "thumbnails"],
+  ["AWS SDK for Go", "https://github.com/aws/aws-sdk-go-v2", "Apache 2.0", "the S3 client"],
+  ["urfave/cli", "https://cli.urfave.org", "MIT", "the command line"],
+  ["Effect", "https://effect.website", "MIT", "the dashboard's API client and state"],
   ["React", "https://react.dev", "MIT", "the app you're looking at"],
-  ["Node.js", "https://nodejs.org", "MIT", "runtime and SQLite"],
-  ["sharp", "https://sharp.pixelplumbing.com", "Apache 2.0", "thumbnails"],
-  ["ws", "https://github.com/websockets/ws", "MIT", "preview tunnels"],
   ["Vite", "https://vite.dev", "MIT", "web build"],
-  ["Rolldown", "https://rolldown.rs", "MIT", "the server and CLI bundles"],
-  ["Tailwind CSS", "https://tailwindcss.com", "MIT", "styling"],
-  ["distilled", "https://github.com/alchemy-run/distilled", "Apache 2.0", "the S3 client"]
+  ["Tailwind CSS", "https://tailwindcss.com", "MIT", "styling"]
 ]
 
 const External = ({ href, children, className = "" }: { href: string; children: ReactNode; className?: string }) => (

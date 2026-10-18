@@ -303,7 +303,7 @@ export const PreviewName = Schema.String.check(
 export const PREVIEW_TTL_DEFAULT_SECONDS = 8 * 60 * 60
 export const PREVIEW_TTL_MAX_SECONDS = 24 * 60 * 60
 
-/** A dev server shared by `sloppa preview run`, live for as long as that command runs. */
+/** A dev server shared by `sloppa preview run`, live until it expires or is stopped. */
 export class Preview extends Schema.Class<Preview, { readonly brand: unique symbol }>("Preview")({
   /** 8 random base36 characters; the subdomain too, unless the preview has a name. */
   id: Schema.String,
@@ -316,21 +316,23 @@ export class Preview extends Schema.Class<Preview, { readonly brand: unique symb
   command: Schema.optionalKey(Schema.String),
   cwd: Schema.optionalKey(Schema.String),
   hostname: Schema.optionalKey(Schema.String),
+  /** When the tunnel last connected, or when the preview started if it never has. */
   connectedAt: Schema.DateTimeUtcFromString,
   /** When the preview stops on its own, killing its dev server. */
   expiresAt: Schema.DateTimeUtcFromString,
+  /** Whether `sloppa preview run` is connected right now. */
+  connected: Schema.Boolean,
   /** Browser connections open right now. */
   connections: Schema.Int,
   requests: Schema.Int
 }) {}
 
-/** What `sloppa preview run` connects with. The ticket is a credential: keep it out of logs. */
-export class PreviewTicket extends Schema.Class<PreviewTicket, { readonly brand: unique symbol }>("PreviewTicket")({
-  ticket: Schema.String,
+/** What `sloppa preview run` connects its tunnel to, with the same agent token. */
+export class StartedPreview extends Schema.Class<StartedPreview, { readonly brand: unique symbol }>("StartedPreview")({
   id: Schema.String,
   url: Schema.String,
   /** The tunnel's WebSocket endpoint. */
-  connectUrl: Schema.String,
+  tunnelUrl: Schema.String,
   expiresAt: Schema.DateTimeUtcFromString
 }) {}
 
@@ -340,7 +342,7 @@ export class PreviewNotFound extends Schema.TaggedError<PreviewNotFound, { reado
   { httpApiStatus: 404 }
 ) {}
 
-/** Previews aren't configured on this server, or the preview proxy can't be reached. */
+/** Previews aren't configured on this server. */
 export class PreviewsUnavailable extends Schema.TaggedError<PreviewsUnavailable, { readonly brand: unique symbol }>()(
   "PreviewsUnavailable",
   { message: Schema.String },
@@ -356,12 +358,17 @@ export class PreviewsGroup extends HttpApiGroup.make("previews")
     HttpApiEndpoint.post("start", "/api/previews", {
       payload: Schema.Struct({
         name: Schema.optionalKey(PreviewName),
-        /** Asked for by the proxy as Basic auth, any user name. Only a keyed hash leaves this server. */
+        /** Asked for by the proxy as Basic auth, any user name. Only its hash is kept. */
         password: Schema.optionalKey(Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(200))),
         /** Seconds until the preview stops by itself. */
-        ttl: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 60, maximum: PREVIEW_TTL_MAX_SECONDS })))
+        ttl: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 60, maximum: PREVIEW_TTL_MAX_SECONDS }))),
+        /** The dev server's port, and what it is, for listings. */
+        port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })),
+        command: Schema.optionalKey(Schema.String),
+        cwd: Schema.optionalKey(Schema.String),
+        hostname: Schema.optionalKey(Schema.String)
       }),
-      success: PreviewTicket,
+      success: StartedPreview,
       error: PreviewsUnavailable
     }).middleware(Authorization),
     HttpApiEndpoint.delete("stop", "/api/previews/:id", {
@@ -371,12 +378,6 @@ export class PreviewsGroup extends HttpApiGroup.make("previews")
     }).middleware(Authorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Previews" })) {}
-
-/** `owner/repo #42`, the label for a GitHub PR, from its URL; anything else is kept as it is. */
-export const collectionOfPr = (pr: string): string => {
-  const match = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(pr.trim())
-  return match ? `${match[1]} #${match[2]}` : pr.trim()
-}
 
 /** Where a collection named after a GitHub PR (`owner/repo #42`, or its URL) points, if it is one. */
 export const pullRequestUrl = (collection: string): string | undefined => {

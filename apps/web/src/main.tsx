@@ -52,7 +52,7 @@ const Footer = ({ ref }: { ref: Ref<HTMLElement> }) => (
       <FooterLink href="/api/openapi.json" external>
         openapi.json
       </FooterLink>
-      <FooterLink href="https://github.com/phinnerhq/sloppa-artifacts" external>
+      <FooterLink href="https://github.com/phinnerhq/sloppa" external>
         source
       </FooterLink>
     </nav>

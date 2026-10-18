@@ -41,6 +41,11 @@ jobs:
           node-version-file: ".node-version"
           cache: "pnpm"
 
+      - name: "Setup Go"
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: "go.mod"
+
       # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin
       - name: "Install Dependencies"
         run: pnpm install --frozen-lockfile
@@ -51,20 +56,19 @@ jobs:
       - name: "Build"
         run: pnpm run build
 
-      - name: "Run CLI Shim"
-        if: ${{ runner.os == 'Windows' }}
-        run: apps\cli\dist\sloppa.cmd --version
-        shell: cmd
-
       - name: "Run CLI"
-        if: ${{ runner.os != 'Windows' }}
-        run: apps/cli/dist/sloppa.mjs --version
+        run: ./dist/sloppa$(go env GOEXE) --version
+        shell: bash
 
-      - name: "Test"
-        run: pnpm run test
+      - name: "Test Web"
+        run: pnpm exec vitest run
         env:
           # Absolute, since each process resolves it against its own working directory. Empty is off
           NODE_V8_COVERAGE: "${{ runner.os == 'Linux' && format('{0}/coverage/v8', github.workspace) || '' }}"
+
+      # The race detector needs cgo, which only the Linux runner is set up for
+      - name: "Test Go"
+        run: go test ${{ runner.os == 'Linux' && '-race' || '' }} ./...
 
       - name: "Check Code Health"
         if: ${{ runner.os == 'Linux' }}
