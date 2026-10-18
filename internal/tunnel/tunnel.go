@@ -44,6 +44,10 @@ const (
 	statusRefused byte = 0
 	// refusalMax bounds the message a refusal carries.
 	refusalMax = 512
+	// maxClientStreams caps the connections the CLI makes to the dev server at once, whatever the
+	// server asks for: the server keeps under a lower cap of its own, but the developer's machine
+	// needn't trust it to.
+	maxClientStreams = 256
 )
 
 func config() *yamux.Config {
@@ -53,6 +57,10 @@ func config() *yamux.Config {
 	c.KeepAliveInterval = 20 * time.Second
 	c.ConnectionWriteTimeout = 30 * time.Second
 	c.StreamOpenTimeout = 30 * time.Second
+	// A stream one side closed waits this long for the other's FIN before it's reset. Closing is
+	// quick when both are done; one that isn't is a response the browser walked away from while the
+	// dev server writes on, which would otherwise hold its connection and buffer for 5 minutes.
+	c.StreamCloseTimeout = 30 * time.Second
 	c.MaxStreamWindowSize = 1 << 20
 	return c
 }
@@ -92,20 +100,28 @@ type RefusedError struct{ Message string }
 
 func (e *RefusedError) Error() string { return "the dev server refused the connection: " + e.Message }
 
-// Dial opens a connection to the dev server, for http.Transport's DialContext.
+// Dial opens a connection to the dev server, for http.Transport's DialContext. ctx bounds waiting
+// for the CLI's answer, refusal message and all: a CLI that sends the refusal byte and keeps the
+// stream open mustn't hold the dial past it.
 func (s *Server) Dial(ctx context.Context) (net.Conn, error) {
 	stream, err := s.session.OpenStream()
 	if err != nil {
 		return nil, err
 	}
-	if deadline, ok := ctx.Deadline(); ok {
-		stream.SetReadDeadline(deadline)
-	}
+	// ctx's deadline reaches the stream through this callback too, never as a deadline of the
+	// stream's own: that timer could fire before ctx counts as done, and the error wouldn't say why.
 	stop := context.AfterFunc(ctx, func() { stream.SetReadDeadline(time.Now()) })
 	var status [1]byte
 	_, err = io.ReadFull(stream, status[:])
-	stop()
-	stream.SetReadDeadline(time.Time{})
+	var message []byte
+	if err == nil && status[0] != statusOK {
+		message, err = io.ReadAll(io.LimitReader(stream, refusalMax))
+	}
+	// Once ctx is done, its callback may yet cut the stream's reads short: it's no use to anyone.
+	if !stop() {
+		stream.Close()
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		stream.Close()
 		if ctx.Err() != nil {
@@ -114,10 +130,10 @@ func (s *Server) Dial(ctx context.Context) (net.Conn, error) {
 		return nil, fmt.Errorf("tunnel: %w", err)
 	}
 	if status[0] != statusOK {
-		message, _ := io.ReadAll(io.LimitReader(stream, refusalMax))
 		stream.Close()
 		return nil, &RefusedError{Message: string(message)}
 	}
+	stream.SetReadDeadline(time.Time{})
 	return stream, nil
 }
 
@@ -171,14 +187,24 @@ func NewClient(ctx context.Context, ws *websocket.Conn) (*Client, error) {
 }
 
 // Serve connects each stream the server opens with dial, until the tunnel goes down; it returns a
-// *ClosedError saying how.
+// *ClosedError saying how. Past maxClientStreams at once, streams are refused without dialing.
 func (c *Client) Serve(dial func() (net.Conn, error)) error {
+	slots := make(chan struct{}, maxClientStreams)
 	for {
 		stream, err := c.session.AcceptStream()
 		if err != nil {
 			return c.closed(err)
 		}
-		go serveStream(stream, dial)
+		select {
+		case slots <- struct{}{}:
+			go func() {
+				defer func() { <-slots }()
+				serveStream(stream, dial)
+			}()
+		default:
+			// Here rather than in a goroutine: a server flooding the tunnel waits on its own refusals.
+			refuse(stream, fmt.Sprintf("the CLI has %d connections open to the dev server already", maxClientStreams))
+		}
 	}
 }
 
@@ -203,15 +229,19 @@ func (c *Client) Close() {
 	c.session.Close()
 }
 
+// refuse answers a stream with a refusal, and why.
+func refuse(stream *yamux.Stream, message string) {
+	if len(message) > refusalMax {
+		message = message[:refusalMax]
+	}
+	stream.Write(append([]byte{statusRefused}, message...))
+	stream.Close()
+}
+
 func serveStream(stream *yamux.Stream, dial func() (net.Conn, error)) {
 	local, err := dial()
 	if err != nil {
-		message := err.Error()
-		if len(message) > refusalMax {
-			message = message[:refusalMax]
-		}
-		stream.Write(append([]byte{statusRefused}, message...))
-		stream.Close()
+		refuse(stream, err.Error())
 		return
 	}
 	if _, err := stream.Write([]byte{statusOK}); err != nil {

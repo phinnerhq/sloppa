@@ -112,5 +112,6 @@ server {
 - Anyone holding a shared artifact link can read it.
 - Back up `DATA_DIR/accounts.sqlite`; it holds accounts and credentials. Without S3, back up the artifact files in `DATA_DIR` too.
 - Keep the app and previews on different registrable domains so previews remain cross-site to the app. The proxy removes cookie domains other than the preview's own host.
+- With an `https` `PUBLIC_URL` the session cookie is `__Host-sloppa_session`, which a preview on a sibling subdomain can't set or shadow; browsers signed in before this sign in again once. Over plain HTTP it's `sloppa_session`, and a sibling subdomain can set one for the parent domain: a browser sending two is treated as signed out.
 - Previews go only through CLI tunnels. Request headers cannot select another upstream, and the CLI connects only to `127.0.0.1` or `::1`.
 - Preview routes live in memory. A restart drops them; CLIs reconnect to the same URLs while their tickets remain valid.

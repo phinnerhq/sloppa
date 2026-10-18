@@ -241,18 +241,6 @@ var previewID = regexp.MustCompile(`^[a-z0-9]{8}$`)
 
 func IsPreviewID(id string) bool { return previewID.MatchString(id) }
 
-var prURL = regexp.MustCompile(`^https?://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)`)
-
-// CollectionOfPR is `owner/repo #42`, the label for a GitHub PR, from its URL; anything else is kept
-// as it is.
-func CollectionOfPR(pr string) string {
-	pr = strings.TrimSpace(pr)
-	if m := prURL.FindStringSubmatch(pr); m != nil {
-		return m[1] + " #" + m[2]
-	}
-	return pr
-}
-
 // SetupPath is where agents redeem a setup link, outside the typed API since they read it as text.
 func SetupPath(code string) string { return "/setup/" + code }
 
