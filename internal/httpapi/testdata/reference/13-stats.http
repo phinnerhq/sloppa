@@ -1,0 +1,5 @@
+HTTP/1.1 200 OK
+content-type: application/json
+content-length: 81
+
+{"total":2,"totalBytes":17,"last24h":2,"lastUploadAt":"2026-10-18T22:38:28.498Z"}

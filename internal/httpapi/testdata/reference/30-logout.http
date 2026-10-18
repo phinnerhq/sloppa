@@ -1,0 +1,3 @@
+HTTP/1.1 204 No Content
+set-cookie: sloppa_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax
+

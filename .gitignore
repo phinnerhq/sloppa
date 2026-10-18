@@ -6,3 +6,5 @@ dist
 .fallow/
 coverage
 test-results
+*.sqlite-shm
+*.sqlite-wal
