@@ -2,7 +2,10 @@
 
 # sloppa
 
-A server for agent artifacts and dev-server previews. Group screenshots, videos, and logs in collections such as `owner/repo #42`.
+A simple platform for helping with agentic workflows. Features:
+
+- artifacts storage
+- preview urls
 
 ## Run
 
