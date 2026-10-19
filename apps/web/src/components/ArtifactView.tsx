@@ -1,17 +1,9 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { type Artifact, ArtifactId } from "@sloppa/api"
-import { Exit, Option, Schema } from "effect"
-import { AsyncResult } from "effect/reactivity"
 import { Dialog } from "@base-ui/react/dialog"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { type MouseEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react"
-import {
-  artifactAtom,
-  collectionPath,
-  deleteArtifactAtom,
-  invalidateArtifacts,
-  MAX_TEXT_PREVIEW,
-  textPreviewAtom
-} from "../api.ts"
+import { artifactQuery, collectionPath, deleteArtifactMutation, MAX_TEXT_PREVIEW, textPreviewQuery } from "../api.ts"
+import type { Artifact } from "../client/types.gen.ts"
+import { apiError } from "../errors.ts"
 import { formatAgo, formatDate, formatSize, kindOf, pullRequestUrl } from "../format.ts"
 import { listPath, navigate, onLinkClick, returnTo } from "../router.ts"
 import { useSignedIn } from "./Login.tsx"
@@ -39,16 +31,14 @@ import {
 } from "./Icon"
 
 const TextPreview = ({ url }: { url: string }) => {
-  const result = useAtomValue(textPreviewAtom(url))
-  return AsyncResult.match(result, {
-    onInitial: () => <Loading label="loading file…" />,
-    onFailure: () => <Notice title="couldn't load this file" mood="hiss" bare />,
-    onSuccess: ({ value }) => (
-      <pre className="max-h-[70vh] overflow-auto bg-[#1d2433] p-5 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-[#e8edf6]">
-        {value}
-      </pre>
-    )
-  })
+  const text = useQuery(textPreviewQuery(url))
+  if (text.isPending) return <Loading label="loading file…" />
+  if (text.isError) return <Notice title="couldn't load this file" mood="hiss" bare />
+  return (
+    <pre className="max-h-[70vh] overflow-auto bg-[#1d2433] p-5 font-mono text-[13px] leading-relaxed break-words whitespace-pre-wrap text-[#e8edf6]">
+      {text.data}
+    </pre>
+  )
 }
 
 const TooBig = ({ artifact, title }: { artifact: Artifact; title: string }) => (
@@ -231,28 +221,27 @@ const Preview = ({ artifact }: { artifact: Artifact }) => {
 }
 
 const SellButton = ({ artifact }: { artifact: Artifact }) => {
-  const remove = useAtomSet(deleteArtifactAtom, { mode: "promiseExit" })
+  const remove = useMutation(deleteArtifactMutation)
   const toast = useToast()
-  const [busy, setBusy] = useState(false)
   return (
     <Button
       tone="red"
-      disabled={busy}
+      disabled={remove.isPending}
       onClick={() => {
         if (!window.confirm(`Delete ${artifact.name}? Links to it will stop working.`)) return
-        setBusy(true)
-        void remove({ params: { id: artifact.id }, reactivityKeys: invalidateArtifacts }).then((exit) => {
-          setBusy(false)
-          if (Exit.isSuccess(exit)) {
-            toast("deleted")
-            navigate(listPath())
-          } else {
-            toast("delete failed")
+        remove.mutate(
+          { path: { id: artifact.id } },
+          {
+            onSuccess: () => {
+              toast("deleted")
+              navigate(listPath())
+            },
+            onError: () => toast("delete failed")
           }
-        })
+        )
       }}
     >
-      {busy ? (
+      {remove.isPending ? (
         <>
           <CircleNotchIcon size={18} className="animate-spin" /> deleting…
         </>
@@ -354,26 +343,31 @@ const Inspector = ({ artifact }: { artifact: Artifact }) => {
   )
 }
 
-const Found = ({ id }: { id: ArtifactId }) => {
-  const result = useAtomValue(artifactAtom(id))
-  return AsyncResult.matchWithError(result, {
-    onInitial: () => <Loading label="loading artifact…" />,
-    onError: (error) =>
-      error._tag === "artifact_not_found" ? (
+const Found = ({ id }: { id: string }) => {
+  const artifact = useQuery(artifactQuery(id))
+  if (artifact.isPending) return <Loading label="loading artifact…" />
+  if (!artifact.isError) return <Inspector artifact={artifact.data} />
+  const error = apiError(artifact.error)
+  switch (error?.code) {
+    case "artifact_not_found":
+      return (
         <Notice title="artifact not found" mood="hiss">
           it may have been deleted.
         </Notice>
-      ) : (
+      )
+    case "storage_error":
+      return (
         <Notice title="storage error" mood="hiss">
           {error.message}
         </Notice>
-      ),
-    onDefect: () => <Notice title="couldn't reach the server" mood="hiss" />,
-    onSuccess: ({ value }) => <Inspector artifact={value} />
-  })
+      )
+    default:
+      return <Notice title="couldn't reach the server" mood="hiss" />
+  }
 }
 
-const decodeId = Schema.decodeUnknownOption(ArtifactId)
+/** An artifact id, as the API takes it: a UUID. */
+const ARTIFACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const ArtifactView = ({ id }: { id: string }) => (
   <div className="space-y-5">
@@ -383,13 +377,12 @@ export const ArtifactView = ({ id }: { id: string }) => (
         <ArrowLeftIcon size={16} /> all artifacts
       </ButtonLink>
     </SignedIn>
-    {Option.match(decodeId(id), {
-      onNone: () => (
-        <Notice title="artifact not found" mood="hiss">
-          that isn't a valid artifact id.
-        </Notice>
-      ),
-      onSome: (id) => <Found id={id} />
-    })}
+    {ARTIFACT_ID.test(id) ? (
+      <Found id={id} />
+    ) : (
+      <Notice title="artifact not found" mood="hiss">
+        that isn't a valid artifact id.
+      </Notice>
+    )}
   </div>
 )

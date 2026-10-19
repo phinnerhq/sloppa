@@ -46,7 +46,6 @@ jobs:
         with:
           go-version-file: "go.mod"
 
-      # Also runs `prepare`, which patches tsc and oxlint with the Effect plugin
       - name: "Install Dependencies"
         run: pnpm install --frozen-lockfile
 

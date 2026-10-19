@@ -1,7 +1,6 @@
 {
-  "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
-  "extends": ["./node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
-  "plugins": ["typescript", "unicorn", "oxc", "import", "react", "effecttsgo"],
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "react"],
   "options": {
     "typeAware": true
   },
@@ -11,8 +10,5 @@
   "env": {
     "browser": true
   },
-  "ignorePatterns": ["**/dist"],
-  "rules": {
-    "effecttsgo/unstable-api-usage": "off"
-  }
+  "ignorePatterns": ["**/dist", "apps/web/src/client"]
 }

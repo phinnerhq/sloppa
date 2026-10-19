@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   test: {
-    include: ["apps/*/test/**/*.test.ts", "packages/*/test/**/*.test.ts"],
+    include: ["apps/*/test/**/*.test.ts"],
     setupFiles: ["vitest.setup.ts"],
     // On GitHub: annotations on the failing lines, and a JUnit report for the test results check.
     reporters: process.env.GITHUB_ACTIONS ? ["default", "github-actions", "junit"] : ["default"],

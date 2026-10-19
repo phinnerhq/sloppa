@@ -1,11 +1,18 @@
 {
   // This file is JSONC: fallow reads these comments; generic JSON tools may not.
   "$schema": "./node_modules/fallow/schema.json",
-  "entry": ["src/index.{ts,tsx,js,jsx}", "src/main.{ts,tsx,js,jsx}"],
+  // openapi-ts.config.ts is read by `pnpm gen`, which fallow doesn't follow. The API client it writes
+  // is gitignored, so fallow doesn't see it either, nor what only it imports: hey-api.ts and valibot.
+  "entry": [
+    "src/index.{ts,tsx,js,jsx}",
+    "src/main.{ts,tsx,js,jsx}",
+    "apps/web/openapi-ts.config.ts",
+    "apps/web/src/hey-api.ts"
+  ],
   // scripts/doodles.ts reads its SVGs straight from node_modules, by path.
-  "ignoreDependencies": ["@phosphor-icons/core"],
+  "ignoreDependencies": ["@phosphor-icons/core", "valibot"],
   "workspaces": {
-    "patterns": ["packages/*", "apps/*"]
+    "patterns": ["apps/*"]
   },
   "health": {
     "ignore": [

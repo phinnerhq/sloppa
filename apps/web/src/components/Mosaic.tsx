@@ -1,7 +1,8 @@
-import type { Artifact, ArtifactGroup } from "@sloppa/api"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { memo, type ReactNode } from "react"
-import { collectionPath, groupPagesAtom } from "../api.ts"
+import { collectionPath, groupPagesQuery } from "../api.ts"
+import type { Artifact, ArtifactGroup } from "../client/types.gen.ts"
 import { formatAgoShort } from "../format.ts"
 import { onLinkClick } from "../router.ts"
 import { ItemCount, Paged, pop, Preview, skipOnceRendered } from "./Inventory.tsx"
@@ -83,30 +84,28 @@ const ChestsSkeleton = ({ count }: { count: number }) => (
 )
 
 /** Every collection at a glance, most recently active first; a filter or search swaps in the flat list. */
-export const Mosaic = ({ empty }: { empty: ReactNode }) => (
-  <Paged
-    atom={groupPagesAtom}
-    skeleton={<ChestsSkeleton count={8} />}
-    more={<ChestsSkeleton count={4} />}
-    empty={empty}
-  >
-    {(pages) => (
-      <div className={`${MOSAIC} relative`}>
-        <AnimatePresence mode="popLayout" initial={false}>
-          {pages
-            .flatMap((page) => page.items)
-            .map((group) => (
-              <motion.div
-                key={group.collection}
-                ref={skipOnceRendered}
-                {...pop}
-                className="offscreen-skip [--estimate:22rem]"
-              >
-                <Chest group={group} />
-              </motion.div>
-            ))}
-        </AnimatePresence>
-      </div>
-    )}
-  </Paged>
-)
+export const Mosaic = ({ empty }: { empty: ReactNode }) => {
+  const query = useInfiniteQuery(groupPagesQuery)
+  return (
+    <Paged query={query} skeleton={<ChestsSkeleton count={8} />} more={<ChestsSkeleton count={4} />} empty={empty}>
+      {(pages) => (
+        <div className={`${MOSAIC} relative`}>
+          <AnimatePresence mode="popLayout" initial={false}>
+            {pages
+              .flatMap((page) => page.items)
+              .map((group) => (
+                <motion.div
+                  key={group.collection}
+                  ref={skipOnceRendered}
+                  {...pop}
+                  className="offscreen-skip [--estimate:22rem]"
+                >
+                  <Chest group={group} />
+                </motion.div>
+              ))}
+          </AnimatePresence>
+        </div>
+      )}
+    </Paged>
+  )
+}

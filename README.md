@@ -22,6 +22,8 @@ pnpm build
 
 For development, run `pnpm dev:server` and `pnpm dev` side by side: Vite serves the dashboard on `http://127.0.0.1:5173` and proxies the API.
 
+After changing the API, `pnpm gen` rewrites `openapi.json` from the server, then the dashboard's client from it. The client isn't committed: install, `dev`, `build` and `check` generate it.
+
 ## CLI
 
 Put `dist/sloppa` on your `PATH`, or `go install github.com/phinnerhq/sloppa/cmd/sloppa@latest` (without the dashboard, which only `serve` needs).

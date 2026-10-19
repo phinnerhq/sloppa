@@ -1,10 +1,9 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Popover } from "@base-ui/react/popover"
-import type { Preview } from "@sloppa/api"
-import { DateTime, Exit } from "effect"
-import { AsyncResult } from "effect/reactivity"
-import { useEffect, useState } from "react"
-import { invalidatePreviews, previewsAtom, stopPreviewAtom } from "../api.ts"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { useState } from "react"
+import { previewsQuery, stopPreviewMutation } from "../api.ts"
+import type { Preview } from "../client/types.gen.ts"
+import { apiError } from "../errors.ts"
 import { formatAgoShort } from "../format.ts"
 import { Button, CopyButton, overlayScrollbar, useNow, useToast } from "./ui.tsx"
 import { ArrowSquareOutIcon, BroadcastIcon, LockSimpleIcon, StopFillIcon } from "./Icon"
@@ -13,7 +12,7 @@ const START = "sloppa preview run -- pnpm dev"
 
 /** "2h left", "12m left": how long until the preview stops by itself. */
 const timeLeft = (preview: Preview, now: number) => {
-  const minutes = Math.max(0, Math.round((DateTime.toEpochMillis(preview.expiresAt) - now) / 60_000))
+  const minutes = Math.max(0, Math.round((preview.expiresAt.getTime() - now) / 60_000))
   return minutes >= 90 ? `${Math.round(minutes / 60)}h left` : `${minutes}m left`
 }
 
@@ -21,7 +20,7 @@ const timeLeft = (preview: Preview, now: number) => {
 const shortPath = (path: string) => path.split("/").filter(Boolean).slice(-2).join("/")
 
 const PreviewRow = ({ preview, now }: { preview: Preview; now: number }) => {
-  const stop = useAtomSet(stopPreviewAtom, { mode: "promiseExit" })
+  const stop = useMutation(stopPreviewMutation)
   const toast = useToast()
   const host = new URL(preview.url).host
   return (
@@ -66,8 +65,10 @@ const PreviewRow = ({ preview, now }: { preview: Preview; now: number }) => {
         title="Stop it, and its dev server"
         className="[&>.pressable-face]:size-8"
         onClick={() =>
-          void stop({ params: { id: preview.id }, reactivityKeys: invalidatePreviews }).then((exit) =>
-            toast(Exit.isSuccess(exit) ? "stopped" : "couldn't stop it")
+          // The row goes as the list refetches, before mutate's callbacks would run.
+          void stop.mutateAsync({ path: { id: preview.id } }).then(
+            () => toast("stopped"),
+            () => toast("couldn't stop it")
           )
         }
       >
@@ -78,19 +79,20 @@ const PreviewRow = ({ preview, now }: { preview: Preview; now: number }) => {
 }
 
 const PreviewList = () => {
-  const previews = useAtomValue(previewsAtom)
-  const refresh = useAtomRefresh(previewsAtom)
-  const now = useNow(15_000)
   // Previews come and go with their commands: keep up while the menu is open.
-  useEffect(() => {
-    const timer = setInterval(refresh, 4_000)
-    return () => clearInterval(timer)
-  }, [refresh])
+  const previews = useQuery({ ...previewsQuery, refetchInterval: 4_000 })
+  const now = useNow(15_000)
 
-  if (AsyncResult.isFailure(previews)) {
-    return <p className="text-xs font-bold text-ink/60">previews aren't set up on this server.</p>
+  if (previews.isError) {
+    return (
+      <p className="text-xs font-bold text-ink/60">
+        {apiError(previews.error)?.code === "previews_unavailable"
+          ? "previews aren't set up on this server."
+          : "couldn't load previews."}
+      </p>
+    )
   }
-  const list = AsyncResult.isSuccess(previews) ? previews.value : []
+  const list = previews.data ?? []
   return (
     <div className="space-y-2">
       {list.length === 0 ? (
@@ -120,18 +122,11 @@ const PreviewList = () => {
 
 /** The header's list of live previews: one dot per running `sloppa preview run`. */
 export const Previews = () => {
-  const previews = useAtomValue(previewsAtom)
-  const refresh = useAtomRefresh(previewsAtom)
+  const previews = useQuery(previewsQuery)
   const [open, setOpen] = useState(false)
-  const count = AsyncResult.isSuccess(previews) ? previews.value.length : 0
+  const count = previews.isSuccess ? previews.data.length : 0
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next) refresh()
-      }}
-    >
+    <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger
         render={
           <Button

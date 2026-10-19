@@ -57,7 +57,9 @@ const STACK: ReadonlyArray<Entry> = [
   ["webp", "https://github.com/gen2brain/webp", "MIT", "thumbnails"],
   ["AWS SDK for Go", "https://github.com/aws/aws-sdk-go-v2", "Apache 2.0", "the S3 client"],
   ["urfave/cli", "https://cli.urfave.org", "MIT", "the command line"],
-  ["Effect", "https://effect.website", "MIT", "the dashboard's API client and state"],
+  ["Hey API", "https://heyapi.dev", "MIT", "the dashboard's API client, generated from openapi.json"],
+  ["TanStack Query", "https://tanstack.com/query", "MIT", "the dashboard's data and its cache"],
+  ["Valibot", "https://valibot.dev", "MIT", "checking the API's answers"],
   ["React", "https://react.dev", "MIT", "the app you're looking at"],
   ["Vite", "https://vite.dev", "MIT", "web build"],
   ["Tailwind CSS", "https://tailwindcss.com", "MIT", "styling"]
