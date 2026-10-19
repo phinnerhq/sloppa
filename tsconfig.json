@@ -1,5 +1,4 @@
 {
-  "$schema": "./node_modules/@effect/tsgo/schema.json",
   "compilerOptions": {
     "target": "ES2023",
     "module": "Preserve",
@@ -14,19 +13,13 @@
     "erasableSyntaxOnly": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["node"],
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "diagnostics": false
-      }
-    ]
+    "types": ["node"]
   },
   "include": [
-    "packages/*/src",
     "apps/*/src",
     "apps/*/test",
     "apps/web/vite.config.ts",
+    "apps/web/openapi-ts.config.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ]

@@ -1,0 +1,4 @@
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+
+{"code":"artifact_not_found","message":"No artifact 00000000-0000-4000-8000-000000000000","id":"00000000-0000-4000-8000-000000000000"}

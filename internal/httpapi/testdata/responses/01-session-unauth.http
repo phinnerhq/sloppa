@@ -1,0 +1,5 @@
+HTTP/1.1 401 Unauthorized
+Content-Length: 68
+Content-Type: application/json
+
+{"code":"unauthorized","message":"Sign in, or pass a machine token"}

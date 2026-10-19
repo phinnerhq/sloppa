@@ -1,9 +1,8 @@
-import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react"
-import type { Artifact } from "@sloppa/api"
-import { Predicate } from "effect"
-import { AsyncResult, type Atom } from "effect/reactivity"
+import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query"
 import { AnimatePresence, motion } from "motion/react"
 import { memo, type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react"
+import type { Artifact } from "../client/types.gen.ts"
+import { apiError } from "../errors.ts"
 import { colorFor, formatAgoShort, formatSize, kindOf, pullRequestUrl } from "../format.ts"
 import { onLinkClick } from "../router.ts"
 import { Login } from "./Login.tsx"
@@ -161,30 +160,6 @@ const NextPage = ({ paused, onLoad, children }: { paused: boolean; onLoad: () =>
 }
 
 /**
- * Cached data shows instantly when an atom is picked back up; refetch it in the background, once per
- * pick-up. `stale` can turn that down for a result that would lose something by refetching.
- */
-export const useRevalidate = <A,>(
-  atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
-  stale: (value: A) => boolean = () => true
-) => {
-  const result = useAtomValue(atom)
-  const refresh = useAtomRefresh(atom)
-  const checked = useRef<unknown>(null)
-  useEffect(() => {
-    if (checked.current === atom) return
-    checked.current = atom
-    if (AsyncResult.isSuccess(result) && !result.waiting && stale(result.value)) refresh()
-  }, [atom, result, refresh, stale])
-}
-
-/**
- * Refetching starts a paged list over from its first page: one scrolled further keeps what it has
- * (at most `LIST_CACHE` old) rather than collapsing under the reader and their restored scroll.
- */
-const onFirstPage = (value: { readonly items: ReadonlyArray<unknown> }) => value.items.length <= 1
-
-/**
  * Cards and groups pop in with a little bounce and shrink away; whatever stays glides to its new spot.
  * The glide doesn't bounce: a spring's overshoot grows with the distance, and a group jumping from the
  * bottom of the list to the top would fly past its spot and over the filters.
@@ -283,50 +258,40 @@ interface Page {
  * flashing through a skeleton.
  */
 export const Paged = <P extends Page>({
-  atom,
+  query,
   skeleton,
   more,
   empty,
   children
 }: {
-  atom: Atom.Writable<Atom.PullResult<P, unknown>, void>
+  query: UseInfiniteQueryResult<InfiniteData<P>, { readonly code: string }>
   skeleton: ReactNode
   more: ReactNode
   /** Shown when there's nothing at all. */
   empty: ReactNode
   children: (pages: ReadonlyArray<P>) => ReactNode
 }) => {
-  const result = useAtomValue(atom)
-  const loadMore = useAtomSet(atom)
-  useRevalidate(atom, onFirstPage)
-  const [last, setLast] = useState<{ readonly items: ReadonlyArray<P> } | null>(null)
-  if (AsyncResult.isSuccess(result) && result.value !== last) setLast(result.value)
-  const shown = AsyncResult.isInitial(result) && last !== null ? AsyncResult.success(last, { waiting: true }) : result
-  const stale = shown !== result
-  return AsyncResult.matchWithError(shown, {
-    onInitial: () => skeleton,
-    onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? (
-        <Login expired />
-      ) : (
-        <Notice title="couldn't load artifacts" mood="hiss">
-          is the server and its bucket up?
-        </Notice>
-      ),
-    onDefect: () => (
+  if (query.isPending) return skeleton
+  if (query.isError) {
+    return apiError(query.error)?.code === "unauthorized" ? (
+      <Login expired />
+    ) : (
       <Notice title="couldn't load artifacts" mood="hiss">
         is the server and its bucket up?
       </Notice>
-    ),
-    onSuccess: ({ value, waiting }) => (
-      <div aria-busy={stale} className={`space-y-8 transition-opacity duration-200 ${stale ? "opacity-60" : ""}`}>
-        {value.items.every((page) => page.items.length === 0) ? empty : children(value.items)}
-        {value.items.at(-1)?.nextCursor !== undefined && (
-          <NextPage paused={waiting || stale} onLoad={() => loadMore()}>
-            {more}
-          </NextPage>
-        )}
-      </div>
     )
-  })
+  }
+  const { pages } = query.data
+  const stale = query.isPlaceholderData
+  return (
+    <div aria-busy={stale} className={`space-y-8 transition-opacity duration-200 ${stale ? "opacity-60" : ""}`}>
+      {pages.every((page) => page.items.length === 0) ? empty : children(pages)}
+      {/* The pages shown, not hasNextPage: previous results standing in for a filter don't have one. */}
+      {pages.at(-1)?.nextCursor !== undefined && (
+        <NextPage paused={query.isFetching || stale} onLoad={() => void query.fetchNextPage()}>
+          {more}
+        </NextPage>
+      )}
+    </div>
+  )
 }

@@ -1,12 +1,12 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { Exit, Option } from "effect"
-import { AsyncResult } from "effect/reactivity"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
-import { invalidateSession, loginAtom, sessionAtom } from "../api.ts"
+import { loginMutation, sessionQuery } from "../api.ts"
+import type { SessionLoginError } from "../client/types.gen.ts"
+import { apiError } from "../errors.ts"
 import { Button, Floppa } from "./ui.tsx"
 
 /** True once the server confirms a session, and still while it re-checks one. */
-export const useSignedIn = () => AsyncResult.isSuccess(useAtomValue(sessionAtom))
+export const useSignedIn = () => useQuery(sessionQuery).isSuccess
 
 const FIELD = "panel game-field w-full bg-white px-4 py-2.5 font-semibold placeholder:text-ink/40"
 
@@ -15,9 +15,10 @@ type Status = "idle" | "busy" | "rejected" | "failed" | { readonly retryAfter: n
 const waitLabel = (seconds: number) => (seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`)
 
 /** What a failed sign-in comes to: too many tries, a wrong password, or no answer at all. */
-const failureOf = (error: { readonly _tag: string; readonly retryAfter?: number } | undefined): Status => {
-  if (error?._tag === "TooManyAttempts" && error.retryAfter !== undefined) return { retryAfter: error.retryAfter }
-  return error?._tag === "InvalidCredentials" ? "rejected" : "failed"
+const failureOf = (error: SessionLoginError): Status => {
+  const known = apiError(error)
+  if (known?.code === "too_many_attempts") return { retryAfter: known.retryAfter }
+  return known?.code === "invalid_credentials" ? "rejected" : "failed"
 }
 
 const HEADLINES = { rejected: "wrong username or password", failed: "couldn't reach the server" } as const
@@ -30,7 +31,7 @@ const headline = (status: Status, expired: boolean) => {
 
 /** `expired`: a session that was signed in until a moment ago. */
 export const Login = ({ expired = false }: { expired?: boolean }) => {
-  const login = useAtomSet(loginAtom, { mode: "promiseExit" })
+  const login = useMutation(loginMutation)
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [status, setStatus] = useState<Status>("idle")
@@ -40,11 +41,15 @@ export const Login = ({ expired = false }: { expired?: boolean }) => {
         e.preventDefault()
         if (username.trim() === "" || password === "") return
         setStatus("busy")
-        void login({ payload: { username, password }, reactivityKeys: invalidateSession }).then((exit) => {
-          if (Exit.isSuccess(exit)) return
-          setStatus(failureOf(Option.getOrUndefined(Exit.findErrorOption(exit))))
-          setPassword("")
-        })
+        login.mutate(
+          { body: { username, password } },
+          {
+            onError: (error) => {
+              setStatus(failureOf(error))
+              setPassword("")
+            }
+          }
+        )
       }}
       className="panel animate-pop-in mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-8 text-center"
     >

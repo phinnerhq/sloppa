@@ -6,3 +6,11 @@ dist
 .fallow/
 coverage
 test-results
+*.sqlite-shm
+*.sqlite-wal
+!internal/webui/dist/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+
+# Generated from openapi.json on install, dev and build (see apps/web/openapi-ts.config.ts).
+apps/web/src/client/

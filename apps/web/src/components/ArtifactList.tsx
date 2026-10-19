@@ -1,22 +1,13 @@
-import { useAtomValue } from "@effect/atom-react"
-import type { Stats } from "@sloppa/api"
-import { Predicate } from "effect"
-import { AsyncResult } from "effect/reactivity"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react"
-import { artifactPagesAtom, collectionsAtom, type ListFilter, sessionAtom, statsAtom } from "../api.ts"
+import { artifactPagesQuery, collectionsQuery, type ListFilter, sessionQuery, statsQuery } from "../api.ts"
+import type { Stats } from "../client/types.gen.ts"
+import { apiError } from "../errors.ts"
 import { formatAgo, formatSize } from "../format.ts"
 import { onLinkClick, returnTo, useQueryParam } from "../router.ts"
-import {
-  CollectionTitle,
-  Inventory,
-  InventorySkeleton,
-  ItemCount,
-  Paged,
-  SlotsSkeleton,
-  useRevalidate
-} from "./Inventory.tsx"
+import { CollectionTitle, Inventory, InventorySkeleton, ItemCount, Paged, SlotsSkeleton } from "./Inventory.tsx"
 import { Login } from "./Login.tsx"
-import { AgentSetup } from "./Connect.tsx"
+import { MachineSetup } from "./Connect.tsx"
 import { Mosaic } from "./Mosaic.tsx"
 import { SearchBar } from "./SearchBar.tsx"
 import { ButtonLink, Floppa, Notice } from "./ui.tsx"
@@ -88,28 +79,31 @@ const StatsRow = ({ stats }: { stats: Stats | null }) => (
 
 const NoArtifacts = () => (
   <Notice title="no artifacts yet" mood="loaf">
-    <p>connect an agent over MCP, then ask it to attach screenshots to its PRs:</p>
+    <p>set a machine up with the sloppa CLI, then ask its agent to attach screenshots to its PRs:</p>
     <div className="mx-auto mt-4 max-w-md">
-      <AgentSetup />
+      <MachineSetup />
     </div>
   </Notice>
 )
 
 /** Every artifact of a collection, or the ones matching a search, as one long grid. */
-const Pages = ({ filter }: { filter: ListFilter }) => (
-  <Paged
-    atom={artifactPagesAtom(filter)}
-    skeleton={<InventorySkeleton />}
-    more={<SlotsSkeleton />}
-    empty={<Notice title="nothing matches these filters" mood="loaf" />}
-  >
-    {(pages) => <Inventory artifacts={pages.flatMap((page) => page.items)} headings={filter.collection === ""} />}
-  </Paged>
-)
+const Pages = ({ filter }: { filter: ListFilter }) => {
+  const query = useInfiniteQuery(artifactPagesQuery(filter))
+  return (
+    <Paged
+      query={query}
+      skeleton={<InventorySkeleton />}
+      more={<SlotsSkeleton />}
+      empty={<Notice title="nothing matches these filters" mood="loaf" />}
+    >
+      {(pages) => <Inventory artifacts={pages.flatMap((page) => page.items)} headings={filter.collection === ""} />}
+    </Paged>
+  )
+}
 
 /** Atop one collection's artifacts: the way back to the mosaic, and the collection with its full count. */
 const CollectionHeading = ({ collection }: { collection: string }) => {
-  const collections = AsyncResult.getOrElse(useAtomValue(collectionsAtom), () => [])
+  const { data: collections = [] } = useQuery(collectionsQuery)
   const count = collections.find((c) => c.collection === collection)?.count
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -164,22 +158,18 @@ const Dashboard = ({ stats }: { stats: Stats | null | undefined }) => {
 
 /** Stats are the cheapest authorized call: the dashboard skeleton waits on them. */
 const SignedIn = () => {
-  const stats = useAtomValue(statsAtom)
-  useRevalidate(statsAtom)
-  useRevalidate(collectionsAtom)
-  return AsyncResult.matchWithError(stats, {
-    onInitial: () => <Dashboard stats={null} />,
-    onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? <Login expired /> : <Dashboard stats={undefined} />,
-    onDefect: () => <Dashboard stats={undefined} />,
-    onSuccess: ({ value }) => <Dashboard stats={value} />
-  })
+  const stats = useQuery(statsQuery)
+  if (stats.isPending) return <Dashboard stats={null} />
+  if (stats.isError) {
+    return apiError(stats.error)?.code === "unauthorized" ? <Login expired /> : <Dashboard stats={undefined} />
+  }
+  return <Dashboard stats={stats.data} />
 }
 
-export const ArtifactList = () =>
-  AsyncResult.matchWithError(useAtomValue(sessionAtom), {
-    onInitial: () => <Dashboard stats={null} />,
-    onError: (error) => (Predicate.isTagged(error, "Unauthorized") ? <Login /> : <Dashboard stats={undefined} />),
-    onDefect: () => <Dashboard stats={undefined} />,
-    onSuccess: () => <SignedIn />
-  })
+export const ArtifactList = () => {
+  const session = useQuery(sessionQuery)
+  if (session.isPending) return <Dashboard stats={null} />
+  if (session.isError)
+    return apiError(session.error)?.code === "unauthorized" ? <Login /> : <Dashboard stats={undefined} />
+  return <SignedIn />
+}

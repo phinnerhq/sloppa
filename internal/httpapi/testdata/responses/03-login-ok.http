@@ -1,0 +1,5 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+Set-Cookie: sloppa_session=YwDmrGADOWhbzokqVd43Itbq8uJsxLuRFmVO2tMTP0A; Path=/; Expires=Wed, 18 Nov 2026 17:27:28 GMT; HttpOnly; SameSite=Lax
+
+{"username":"admin"}

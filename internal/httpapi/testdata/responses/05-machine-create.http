@@ -1,0 +1,4 @@
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"machine":{"id":"c2762401-d7aa-4837-9b45-b0d99867294c","name":"test machine","createdAt":"2026-10-19T17:26:03.063Z"},"token":"sloppa_hc2_sLLOZUfCPY16AJOcfRB7dI1aPUj4PrntY8rMaDo"}

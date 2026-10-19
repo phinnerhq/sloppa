@@ -1,14 +1,6 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
-import { Atom } from "effect/reactivity"
-import {
-  type AnchorHTMLAttributes,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useState
-} from "react"
+import { type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, useEffect, useState } from "react"
 import { OverlayScrollbars, type PartialOptions } from "overlayscrollbars"
+import { shared, useShared } from "../store.ts"
 
 /** Overlay scrollbars, styled as `os-theme-sloppa`: they float over content, so nothing shifts when one appears. */
 export const scrollbars = (
@@ -82,12 +74,10 @@ export const useNow = (ms: number) => {
   return now
 }
 
-const toastAtom = Atom.make<{ readonly id: number; readonly text: string } | null>(null).pipe(Atom.keepAlive)
+const toastShown = shared<{ readonly id: number; readonly text: string } | null>(null)
+const clearToast = () => toastShown.set(null)
 
-export const useToast = () => {
-  const set = useAtomSet(toastAtom)
-  return (text: string) => set({ id: Date.now(), text })
-}
+export const useToast = () => (text: string) => toastShown.set({ id: Date.now(), text })
 
 const Toast = ({ text, onDone }: { text: string; onDone: () => void }) => {
   const [leaving, setLeaving] = useState(false)
@@ -113,13 +103,11 @@ const Toast = ({ text, onDone }: { text: string; onDone: () => void }) => {
 }
 
 export const Toaster = () => {
-  const toast = useAtomValue(toastAtom)
-  const set = useAtomSet(toastAtom)
-  const clear = useCallback(() => set(null), [set])
+  const toast = useShared(toastShown)
   if (toast === null) return null
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
-      <Toast key={toast.id} text={toast.text} onDone={clear} />
+      <Toast key={toast.id} text={toast.text} onDone={clearToast} />
     </div>
   )
 }

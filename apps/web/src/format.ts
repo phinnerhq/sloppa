@@ -1,5 +1,4 @@
-import type { Artifact } from "@sloppa/api"
-import { DateTime } from "effect"
+import type { Artifact } from "./client/types.gen.ts"
 
 export type Kind = "image" | "video" | "audio" | "pdf" | "html" | "text" | "binary"
 
@@ -32,8 +31,8 @@ export const formatSize = (bytes: number) => {
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" })
 
-export const formatAgo = (date: DateTime.Utc, now = Date.now()) => {
-  const seconds = Math.round((DateTime.toEpochMillis(date) - now) / 1000)
+export const formatAgo = (date: Date, now = Date.now()) => {
+  const seconds = Math.round((date.getTime() - now) / 1000)
   const steps: Array<[Intl.RelativeTimeFormatUnit, number]> = [
     ["year", 31536000],
     ["month", 2592000],
@@ -47,14 +46,18 @@ export const formatAgo = (date: DateTime.Utc, now = Date.now()) => {
   return "just now"
 }
 
-export const formatDate = (date: DateTime.Utc) =>
-  DateTime.toDateUtc(date).toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })
+export const formatDate = (date: Date) => date.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" })
 
-export { pullRequestUrl } from "@sloppa/api"
+/** Where a collection named after a GitHub PR (`owner/repo #42`, or its URL) points, if it is one. */
+export const pullRequestUrl = (collection: string): string | undefined => {
+  const match = /^([\w.-]+\/[\w.-]+) ?#(\d+)$/.exec(collection)
+  if (match) return `https://github.com/${match[1]}/pull/${match[2]}`
+  return /^https?:\/\//.test(collection) ? collection : undefined
+}
 
 /** "now", "24m", "3h", "2d", "5mo", "1y" */
-export const formatAgoShort = (date: DateTime.Utc, now = Date.now()) => {
-  const seconds = Math.max(0, Math.round((now - DateTime.toEpochMillis(date)) / 1000))
+export const formatAgoShort = (date: Date, now = Date.now()) => {
+  const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000))
   const steps: Array<[string, number]> = [
     ["y", 31536000],
     ["mo", 2592000],

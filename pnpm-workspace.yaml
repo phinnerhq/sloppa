@@ -1,7 +1,6 @@
 packages:
-  - packages/*
   - apps/*
 
-# Every Effect package on the same release as `effect` itself.
 overrides:
-  "@effect/platform-node-shared": 4.0.4
+  # GHSA-r3ph-w7gj-g6xm, through @hey-api/openapi-ts.
+  "js-yaml@>=5.0.0 <5.4.1": ^5.4.1

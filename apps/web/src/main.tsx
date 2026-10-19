@@ -1,12 +1,13 @@
-import { RegistryProvider } from "@effect/atom-react"
+import { QueryClientProvider } from "@tanstack/react-query"
 import { MotionConfig } from "motion/react"
 import { OverlayScrollbars } from "overlayscrollbars"
 import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, useRef, useState } from "react"
 import { createRoot } from "react-dom/client"
+import { queryClient } from "./api.ts"
 import { Account } from "./components/Account.tsx"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
-import { ConnectAgent } from "./components/Connect.tsx"
+import { ConnectMachine } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
 import { useSignedIn } from "./components/Login.tsx"
 import { Previews } from "./components/Previews.tsx"
@@ -20,7 +21,7 @@ const Session = () => {
   return (
     <>
       <Previews />
-      <ConnectAgent />
+      <ConnectMachine />
       <Account />
     </>
   )
@@ -52,7 +53,7 @@ const Footer = ({ ref }: { ref: Ref<HTMLElement> }) => (
       <FooterLink href="/api/openapi.json" external>
         openapi.json
       </FooterLink>
-      <FooterLink href="https://github.com/phinnerhq/sloppa-artifacts" external>
+      <FooterLink href="https://github.com/phinnerhq/sloppa" external>
         source
       </FooterLink>
     </nav>
@@ -254,10 +255,10 @@ OverlayScrollbars(document.body, scrollbars("move"))
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RegistryProvider>
+    <QueryClientProvider client={queryClient}>
       <MotionConfig reducedMotion="user">
         <App />
       </MotionConfig>
-    </RegistryProvider>
+    </QueryClientProvider>
   </StrictMode>
 )

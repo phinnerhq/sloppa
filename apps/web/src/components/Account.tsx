@@ -1,28 +1,28 @@
-import { useAtomSet, useAtomValue } from "@effect/atom-react"
 import { Popover } from "@base-ui/react/popover"
-import { PASSWORD_MIN } from "@sloppa/api"
-import { Exit, Option } from "effect"
-import { AsyncResult } from "effect/reactivity"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
-import { changePasswordAtom, invalidateSession, logoutAtom, sessionAtom } from "../api.ts"
+import { changePasswordMutation, logoutMutation, sessionQuery } from "../api.ts"
+import type { SessionChangePasswordError } from "../client/types.gen.ts"
+import { PASSWORD_MIN } from "../constants.ts"
+import { apiError } from "../errors.ts"
 import { Button, useToast } from "./ui.tsx"
 import { SignOutIcon, UserCircleIcon } from "./Icon"
 
 const FIELD = "panel game-field w-full bg-white px-2.5 py-1.5 text-sm font-bold placeholder:text-ink/40"
 
 /** Why a change didn't go through, in the form's own words. */
-const problemOf = (error: { readonly _tag: string; readonly retryAfter?: number } | undefined) => {
-  if (error?._tag === "TooManyAttempts") return `too many tries, wait ${error.retryAfter ?? 60}s`
-  return error?._tag === "InvalidCredentials" ? "that's not the current password" : "couldn't reach the server"
+const problemOf = (error: SessionChangePasswordError) => {
+  const known = apiError(error)
+  if (known?.code === "too_many_attempts") return `too many tries, wait ${known.retryAfter}s`
+  return known?.code === "invalid_credentials" ? "that's not the current password" : "couldn't reach the server"
 }
 
 const PasswordForm = ({ username }: { username: string }) => {
-  const change = useAtomSet(changePasswordAtom, { mode: "promiseExit" })
+  const change = useMutation(changePasswordMutation)
   const toast = useToast()
   const [current, setCurrent] = useState("")
   const [next, setNext] = useState("")
   const [again, setAgain] = useState("")
-  const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
   const ready = current !== "" && next.length >= PASSWORD_MIN && next === again
   return (
@@ -31,16 +31,19 @@ const PasswordForm = ({ username }: { username: string }) => {
       onSubmit={(e) => {
         e.preventDefault()
         if (!ready) return
-        setBusy(true)
-        void change({ payload: { current, next } }).then((exit) => {
-          setBusy(false)
-          setCurrent("")
-          if (Exit.isFailure(exit)) return setProblem(problemOf(Option.getOrUndefined(Exit.findErrorOption(exit))))
-          setProblem(null)
-          setNext("")
-          setAgain("")
-          toast("password changed, other browsers are signed out")
-        })
+        change.mutate(
+          { body: { current, next } },
+          {
+            onSettled: () => setCurrent(""),
+            onError: (error) => setProblem(problemOf(error)),
+            onSuccess: () => {
+              setProblem(null)
+              setNext("")
+              setAgain("")
+              toast("password changed, other browsers are signed out")
+            }
+          }
+        )
       }}
     >
       <p className="font-game text-lg">change password</p>
@@ -77,8 +80,8 @@ const PasswordForm = ({ username }: { username: string }) => {
         <span className="text-xs font-bold text-ink/60">
           {problem ?? (again !== "" && next !== again ? "the new passwords differ" : "")}
         </span>
-        <Button type="submit" tone="green" size="sm" disabled={busy || !ready}>
-          {busy ? "changing…" : "change"}
+        <Button type="submit" tone="green" size="sm" disabled={change.isPending || !ready}>
+          {change.isPending ? "changing…" : "change"}
         </Button>
       </div>
     </form>
@@ -87,9 +90,9 @@ const PasswordForm = ({ username }: { username: string }) => {
 
 /** Who is signed in, their password, and signing out. */
 export const Account = () => {
-  const session = useAtomValue(sessionAtom)
-  const logout = useAtomSet(logoutAtom)
-  const username = AsyncResult.isSuccess(session) ? session.value.username : ""
+  const session = useQuery(sessionQuery)
+  const logout = useMutation(logoutMutation)
+  const username = session.isSuccess ? session.data.username : ""
   return (
     <Popover.Root>
       <Popover.Trigger
@@ -106,7 +109,7 @@ export const Account = () => {
               <Popover.Title className="min-w-0 truncate font-game text-xl" title={username}>
                 {username}
               </Popover.Title>
-              <Button tone="red" size="sm" onClick={() => logout({ reactivityKeys: invalidateSession })}>
+              <Button tone="red" size="sm" onClick={() => logout.mutate({})}>
                 <span className="flex items-center gap-1.5">
                   <SignOutIcon size={14} />
                   sign out

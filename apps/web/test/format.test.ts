@@ -1,6 +1,6 @@
 // How the dashboard labels an artifact: which viewer opens it, and its size.
 import { describe, expect, it } from "vitest"
-import { formatSize, kindOf } from "../src/format.ts"
+import { formatSize, kindOf, pullRequestUrl } from "../src/format.ts"
 
 describe("kindOf", () => {
   it("goes by the media type, whatever its case or parameters", () => {
@@ -39,5 +39,18 @@ describe("formatSize", () => {
 
   it("stops at gigabytes", () => {
     expect(formatSize(2 * 1024 ** 4)).toBe("2048 GB")
+  })
+})
+
+describe("pullRequestUrl", () => {
+  it("links a collection named owner/repo #42 to its PR on GitHub", () => {
+    expect(pullRequestUrl("phinnerhq/sloppa #42")).toBe("https://github.com/phinnerhq/sloppa/pull/42")
+    expect(pullRequestUrl("phinnerhq/phinner.dev#7")).toBe("https://github.com/phinnerhq/phinner.dev/pull/7")
+  })
+
+  it("keeps a URL as it is, and links nothing else", () => {
+    expect(pullRequestUrl("https://example.com/review/3")).toBe("https://example.com/review/3")
+    expect(pullRequestUrl("nightly screenshots")).toBeUndefined()
+    expect(pullRequestUrl("sloppa #42")).toBeUndefined()
   })
 })

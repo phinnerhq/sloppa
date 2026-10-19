@@ -1,0 +1,5 @@
+HTTP/1.1 200 OK
+Content-Length: 620
+Content-Type: application/json
+
+[{"id":"00000000-0000-4000-8000-000000000001","name":"hello.txt","contentType":"text/plain","size":12,"createdAt":"2026-10-19T17:26:09.206Z","collection":"owner/repo #42","url":"http://sloppa.test/a/00000000-0000-4000-8000-000000000001","rawUrl":"http://sloppa.test/f/00000000-0000-4000-8000-000000000001/hello.txt"},{"id":"00000000-0000-4000-8000-000000000002","name":"notes.md","contentType":"","size":5,"createdAt":"2026-10-19T17:26:09.206Z","collection":"owner/repo #42","url":"http://sloppa.test/a/00000000-0000-4000-8000-000000000002","rawUrl":"http://sloppa.test/f/00000000-0000-4000-8000-000000000002/notes.md"}]

@@ -9,10 +9,10 @@ description: Attach screenshots, recordings, logs or reports to a PR or issue as
 
 ## Ready
 
-`sloppa artifact list --limit 1` exits 0 when the CLI is installed and signed in.
+`sloppa whoami` prints the user name, and the machine, when the CLI is installed and signed in.
 
 - Command not found: ask the user to install it (the sloppa repo's README, under CLI).
-- An error about signing in: ask the user for the server URL and an agent token (the dashboard's robot menu), then run `printf %s "$TOKEN" | sloppa login <url>`, keeping the token out of chat and tool output.
+- An error about signing in: ask the user for a setup link (the dashboard's robot menu makes a setup prompt with one), then run `sloppa setup '<link>'`. It registers this machine, or re-pairs it if it was set up before, and saves its token without showing it.
 
 ## Attach files to a PR
 
@@ -26,7 +26,7 @@ Done when the PR shows the links. A file in the wrong collection: `sloppa artifa
 
 1. Start it in the background: `sloppa preview run -- pnpm dev`. The dev server gets `PORT` and `HOST`; for one that only takes flags, use the placeholders: `sloppa preview run -- vite --host {host} --port {port} --strictPort`.
 2. Wait for `preview_ready: <url>` on stderr, then give out that URL.
-3. The preview lives exactly as long as the command: stop the command, or `sloppa preview stop <id>`, when done.
+3. The preview lives exactly as long as the command: stop the command, or `sloppa preview stop <id>`, when done. `sloppa: tunnel lost (…), reconnecting` means the server blipped or restarted: the command reconnects to the same URL by itself, so leave it running.
 
 `--name checkout` gives a stable subdomain, `--password` puts it behind one, `--ttl 2h` bounds it.
 

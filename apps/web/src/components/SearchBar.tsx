@@ -1,8 +1,7 @@
-import { useAtomValue } from "@effect/atom-react"
 import { Combobox } from "@base-ui/react/combobox"
-import { AsyncResult } from "effect/reactivity"
+import { useQuery } from "@tanstack/react-query"
 import { useRef } from "react"
-import { collectionsAtom } from "../api.ts"
+import { collectionsQuery } from "../api.ts"
 import { overlayScrollbar, CollectionName } from "./ui.tsx"
 import { CheckIcon, MagnifyingGlassIcon, XIcon } from "./Icon"
 
@@ -26,7 +25,7 @@ export const SearchBar = ({
   search: string
   onSearchChange: (search: string) => void
 }) => {
-  const collections = AsyncResult.getOrElse(useAtomValue(collectionsAtom), () => [])
+  const { data: collections = [] } = useQuery(collectionsQuery)
   const counts = new Map(collections.map((c) => [c.collection, c.count]))
   const items = collections.map((c) => c.collection)
   if (collection !== "" && !counts.has(collection)) items.push(collection)

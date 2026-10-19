@@ -1,0 +1,12 @@
+HTTP/1.1 206 Partial Content
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Cache-Control: public, max-age=31536000, immutable
+Content-Disposition: attachment; filename="hello.txt"; filename*=UTF-8''hello.txt
+Content-Length: 5
+Content-Range: bytes 0-4/12
+Content-Security-Policy: sandbox allow-scripts allow-popups allow-forms allow-downloads; frame-ancestors 'self'
+Content-Type: text/plain
+X-Content-Type-Options: nosniff
+
+hello

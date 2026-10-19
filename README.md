@@ -9,29 +9,29 @@ A simple platform for helping with agentic workflows. Features:
 
 ## Run
 
-Node 26 and pnpm:
+Go 1.26, Node 26 and pnpm:
 
 ```sh
 pnpm install --frozen-lockfile
 cp .env.example .env
 pnpm build
-pnpm start
+./dist/sloppa serve
 ```
 
-Open `http://127.0.0.1:4100`; the API schema is at `/api/openapi.json`. See [.env.example](.env.example) for configuration and [Deploy with previews](docs/deploy.md) for Docker and reverse proxies.
+`pnpm build` compiles the dashboard into one static binary, `dist/sloppa`, which is both the server and the CLI. Open `http://127.0.0.1:4100`; the API schema is at `/api/openapi.json`. See [.env.example](.env.example) for configuration and [Deploy with previews](docs/deploy.md) for Docker and reverse proxies.
 
-The dashboard's robot menu currently provides a setup prompt for the MCP server.
+For development, run `pnpm dev:server` and `pnpm dev` side by side: Vite serves the dashboard on `http://127.0.0.1:5173` and proxies the API.
+
+After changing the API, `pnpm gen` rewrites `openapi.json` from the server, then the dashboard's client from it. The client isn't committed: install, `dev`, `build` and `check` generate it.
 
 ## CLI
 
-Build with `pnpm --filter @sloppa/cli build`.
+Put `dist/sloppa` on your `PATH`, or `go install github.com/phinnerhq/sloppa/cmd/sloppa@latest` (without the dashboard, which only `serve` needs).
 
-- macOS and Linux: run `mkdir -p ~/.local/bin && ln -s "$PWD/apps/cli/dist/sloppa.mjs" ~/.local/bin/sloppa` and ensure `~/.local/bin` is on your `PATH`.
-- Windows: add `apps\cli\dist` to your `PATH`; `sloppa.cmd` runs the CLI.
-
-Create an agent token in the dashboard's robot menu. Pipe it into login, or set `SLOPPA_URL` and `SLOPPA_TOKEN`:
+Each machine the CLI runs on signs in with a token of its own. The dashboard's robot menu gives a setup prompt to paste into an agent, which installs the CLI and registers its machine with a single-use setup link; running `sloppa setup` again on the same machine re-pairs it under a new token. To do it by hand, create a machine there and pipe its token into login, or set `SLOPPA_URL` and `SLOPPA_TOKEN`:
 
 ```sh
+sloppa setup 'https://sloppa.example.com/setup/…'
 printf %s "$TOKEN" | sloppa login https://sloppa.example.com
 sloppa artifact upload -c "owner/repo #42" checkout.png run.log
 sloppa preview run -- pnpm dev
