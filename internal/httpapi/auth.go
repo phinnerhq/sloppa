@@ -102,7 +102,7 @@ func (s *server) authenticate(r *http.Request, need access) (context.Context, er
 // headers browsers send, like the CLI's, pass.
 func (s *server) sameOrigin(r *http.Request) error {
 	if err := s.cop.Check(r); err != nil {
-		return forbidden("Cross-origin requests can't act as you: use the dashboard itself")
+		return api.Forbidden("Cross-origin requests can't act as you: use the dashboard itself")
 	}
 	return nil
 }

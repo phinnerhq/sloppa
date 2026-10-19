@@ -38,19 +38,13 @@ func apiFailure(what string, err error) error {
 		return err
 	}
 	var ae *api.Error
-	if errors.As(err, &ae) && (ae.Tag == "Unauthorized" || ae.Tag == "" && ae.Status == 401) {
+	if errors.As(err, &ae) && (ae.Code == "unauthorized" || ae.Code == "" && ae.Status == 401) {
 		return &userError{
 			message: fmt.Sprintf("%s: the server refused this agent token. Sign in again:\n  %s", what, signInAgain),
 			cause:   err,
 		}
 	}
 	return &userError{message: fmt.Sprintf("%s: %v", what, err), cause: err}
-}
-
-// isTag tells whether err is the API error tagged tag, like ArtifactNotFound.
-func isTag(err error, tag string) bool {
-	var ae *api.Error
-	return errors.As(err, &ae) && ae.Tag == tag
 }
 
 // report prints what went wrong, if anything is left to say, and returns the code to exit with:

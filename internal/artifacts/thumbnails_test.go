@@ -273,7 +273,7 @@ func TestNoThumbnail(t *testing.T) {
 	for _, id := range []string{"00000000-0000-4000-8000-000000000000", "../../etc/passwd"} {
 		_, err := thumbs.get(t.Context(), id)
 		var e *api.Error
-		if !errors.As(err, &e) || e.Tag != "ArtifactNotFound" {
+		if !errors.As(err, &e) || e.Code != "artifact_not_found" {
 			t.Errorf("%s: %v, want ArtifactNotFound", id, err)
 		}
 	}
@@ -428,13 +428,13 @@ func TestThumbnailsOfDeletedArtifactsArentCached(t *testing.T) {
 		t.Fatal(err)
 	}
 	close(store.release)
-	if err := <-made; apiError(t, err).Tag != "ArtifactNotFound" {
+	if err := <-made; apiError(t, err).Code != "artifact_not_found" {
 		t.Errorf("thumbnail made as it was deleted: %v", err)
 	}
 	if entries, _ := os.ReadDir(s.thumbs.root.Name()); len(entries) != 0 {
 		t.Errorf("left %d files in the thumbnail dir", len(entries))
 	}
-	if _, err := s.Thumbnail(t.Context(), id); apiError(t, err).Tag != "ArtifactNotFound" {
+	if _, err := s.Thumbnail(t.Context(), id); apiError(t, err).Code != "artifact_not_found" {
 		t.Errorf("thumbnail after the delete: %v", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestThumbnailQueueIsBounded(t *testing.T) {
 		synctest.Wait()
 		_, err := thumbs.get(t.Context(), ids[decoders+1])
 		var e *api.Error
-		if !errors.As(err, &e) || e.Tag != "TooManyAttempts" || e.RetryAfter != 1 {
+		if !errors.As(err, &e) || e.Code != "too_many_attempts" || e.RetryAfter != 1 {
 			t.Errorf("over the queue: %v, want TooManyAttempts", err)
 		}
 		if n := store.reads.Load(); n != decoders {

@@ -58,10 +58,10 @@ func upload(t *testing.T, s *Service, name, body, collection string) api.Artifac
 	return a
 }
 
-// reference is the JSON body of a response captured from the TypeScript server.
+// reference is the JSON body of a golden response.
 func reference(t *testing.T, name string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "httpapi", "testdata", "reference", name))
+	data, err := os.ReadFile(filepath.Join("..", "httpapi", "testdata", "responses", name))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func apiError(t *testing.T, err error) *api.Error {
 }
 
 // What an upload answers with is shaped as the reference server's.
-func TestUploadAnswersLikeTheTypeScriptServer(t *testing.T) {
+func TestUploadAnswersLikeTheGoldenResponse(t *testing.T) {
 	s := newService(t)
 	var got []map[string]any
 	for _, f := range []struct{ name, contentType, body string }{
@@ -183,11 +183,11 @@ func TestCollectionsAreValidated(t *testing.T) {
 	}
 	// 101 emoji are 202 UTF-16 code units, as JavaScript counts them.
 	for _, bad := range []string{"", "   ", long + "x", strings.Repeat("😀", 101)} {
-		if _, err := s.Upload(t.Context(), Upload{Name: "b.txt", Body: strings.NewReader("b"), Size: 1, Collection: bad}); apiError(t, err).Tag != "BadRequest" {
+		if _, err := s.Upload(t.Context(), Upload{Name: "b.txt", Body: strings.NewReader("b"), Size: 1, Collection: bad}); apiError(t, err).Code != "bad_request" {
 			t.Errorf("upload to %q: %v", bad, err)
 		}
 		_, err := s.Move(t.Context(), a.ID, bad)
-		if e := apiError(t, err); e.Tag != "BadRequest" || e.Status != 400 || e.Message == "" {
+		if e := apiError(t, err); e.Code != "bad_request" || e.Status != 400 || e.Message == "" {
 			t.Errorf("move to %q: %+v", bad, e)
 		}
 	}
@@ -216,7 +216,7 @@ func TestMove(t *testing.T) {
 		t.Errorf("still listed under the old collection: %+v", page.Items)
 	}
 	_, err = s.Move(t.Context(), "00000000-0000-4000-8000-000000000000", "x")
-	if e := apiError(t, err); e.Tag != "ArtifactNotFound" {
+	if e := apiError(t, err); e.Code != "artifact_not_found" {
 		t.Errorf("moving a missing artifact: %v", err)
 	}
 }
@@ -238,7 +238,7 @@ func TestMutationsOutliveTheRequest(t *testing.T) {
 	if err != nil || got.Collection != "after" {
 		t.Errorf("after the move: %+v, %v", got, err)
 	}
-	if _, err := s.Get(t.Context(), b.ID); apiError(t, err).Tag != "ArtifactNotFound" {
+	if _, err := s.Get(t.Context(), b.ID); apiError(t, err).Code != "artifact_not_found" {
 		t.Errorf("after the remove: %v", err)
 	}
 }
@@ -281,7 +281,7 @@ func TestRemove(t *testing.T) {
 	if page, _ := s.List(t.Context(), ListQuery{}); len(page.Items) != 0 {
 		t.Errorf("still listed: %+v", page.Items)
 	}
-	if e := apiError(t, s.Remove(t.Context(), a.ID)); e.Tag != "ArtifactNotFound" || e.ID != a.ID {
+	if e := apiError(t, s.Remove(t.Context(), a.ID)); e.Code != "artifact_not_found" || e.ID != a.ID {
 		t.Errorf("removing again: %+v", e)
 	}
 }
@@ -294,7 +294,7 @@ func TestRemoveUnindexesWhatStorageLost(t *testing.T) {
 	if err := s.store.Remove(t.Context(), a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if e := apiError(t, s.Remove(t.Context(), a.ID)); e.Tag != "ArtifactNotFound" {
+	if e := apiError(t, s.Remove(t.Context(), a.ID)); e.Code != "artifact_not_found" {
 		t.Errorf("remove: %+v", e)
 	}
 	if page, _ := s.List(t.Context(), ListQuery{}); len(page.Items) != 0 {
@@ -321,7 +321,7 @@ func TestStorageFailures(t *testing.T) {
 	}
 	s := open(t, dir, failingStore{inner, errors.New("delete artifact: the disk is on fire")})
 	e := apiError(t, s.Remove(t.Context(), a.ID))
-	if e.Tag != "StorageError" || e.Status != 502 || e.Message != "delete artifact: the disk is on fire" {
+	if e.Code != "storage_error" || e.Status != 502 || e.Message != "delete artifact: the disk is on fire" {
 		t.Errorf("remove: %+v", e)
 	}
 	// A failed delete leaves it listed.
@@ -329,7 +329,7 @@ func TestStorageFailures(t *testing.T) {
 		t.Errorf("listed %+v", page.Items)
 	}
 	_, err = s.Upload(t.Context(), Upload{Name: "b", Body: strings.NewReader("b"), Size: 1, Collection: "c"})
-	if e := apiError(t, err); e.Tag != "StorageError" {
+	if e := apiError(t, err); e.Code != "storage_error" {
 		t.Errorf("upload: %+v", e)
 	}
 }
@@ -350,7 +350,7 @@ func TestGetBackfillsTheIndex(t *testing.T) {
 		t.Errorf("listed %d, want the backfilled one too", len(page.Items))
 	}
 	_, err = s.Get(t.Context(), "not-a-uuid")
-	if e := apiError(t, err); e.Tag != "ArtifactNotFound" {
+	if e := apiError(t, err); e.Code != "artifact_not_found" {
 		t.Errorf("get a bad id: %+v", e)
 	}
 }
@@ -488,7 +488,7 @@ func TestOpen(t *testing.T) {
 		t.Errorf("content type %q", o.Artifact.ContentType)
 	}
 	_, err = s.Open(t.Context(), "00000000-0000-4000-8000-000000000000", "")
-	if e := apiError(t, err); e.Tag != "ArtifactNotFound" {
+	if e := apiError(t, err); e.Code != "artifact_not_found" {
 		t.Errorf("open a missing artifact: %+v", e)
 	}
 }

@@ -50,7 +50,7 @@ type changePasswordInput struct {
 
 func (s *server) registerSession() {
 	login := s.operation("Session", "session.login", http.MethodPost, "/api/session", public,
-		http.StatusUnauthorized, http.StatusTooManyRequests)
+		api.KindInvalidCredentials, api.KindTooManyAttempts, api.KindForbidden)
 	login.Middlewares = huma.Middlewares{s.requireSameOrigin}
 	huma.Register(s.api, login, func(ctx context.Context, in *loginInput) (*loginOutput, error) {
 		a, session, expires, err := s.accounts.Login(ctx, in.Body.Username, in.Body.Password, s.client(in.remoteAddr, in.forwardedFor))
@@ -80,7 +80,7 @@ func (s *server) registerSession() {
 		})
 
 	changePassword := s.operation("Session", "session.changePassword", http.MethodPut, "/api/session/password", browser,
-		http.StatusTooManyRequests)
+		api.KindInvalidCredentials, api.KindTooManyAttempts)
 	changePassword.Description = "Signs out every other browser."
 	huma.Register(s.api, changePassword, func(ctx context.Context, in *changePasswordInput) (*struct{}, error) {
 		return nil, s.accounts.ChangePassword(ctx, account(ctx), sessionOf(ctx), in.Body.Current, in.Body.Next)

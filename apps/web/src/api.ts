@@ -13,7 +13,7 @@ class ApiClient extends AtomHttpApi.Service<ApiClient>()("sloppa/web/ApiClient",
 /** Signing in or out changes what every authorized query returns. */
 const SESSION_KEY = ["session"]
 
-/** Who is signed in; fails with `Unauthorized` when nobody is. */
+/** Who is signed in; fails with `unauthorized` when nobody is. */
 export const sessionAtom = ApiClient.query("session", "current", { reactivityKeys: SESSION_KEY })
 
 export const loginAtom = ApiClient.mutation("session", "login")

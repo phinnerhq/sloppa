@@ -38,7 +38,7 @@ type previewIDInput struct {
 
 func (s *server) registerPreviews() {
 	huma.Register(s.api, s.operation("Previews", "previews.list", http.MethodGet, "/api/previews", signedIn,
-		http.StatusServiceUnavailable),
+		api.KindPreviewsUnavailable),
 		func(ctx context.Context, _ *struct{}) (*previewsOutput, error) {
 			previews, err := s.previews.List(ctx, account(ctx))
 			if err != nil {
@@ -48,7 +48,7 @@ func (s *server) registerPreviews() {
 		})
 
 	start := s.operation("Previews", "previews.start", http.MethodPost, "/api/previews", signedIn,
-		http.StatusConflict, http.StatusServiceUnavailable)
+		api.KindPreviewNameTaken, api.KindTooManyAttempts, api.KindPreviewsUnavailable)
 	start.Description = "Makes a preview `sloppa preview run` then connects its tunnel to, with the same credentials."
 	huma.Register(s.api, start, func(ctx context.Context, in *startPreviewInput) (*startedPreviewOutput, error) {
 		b := in.Body
@@ -62,7 +62,7 @@ func (s *server) registerPreviews() {
 	})
 
 	huma.Register(s.api, s.operation("Previews", "previews.stop", http.MethodDelete, "/api/previews/{id}", signedIn,
-		http.StatusNotFound, http.StatusServiceUnavailable),
+		api.KindPreviewNotFound, api.KindPreviewsUnavailable),
 		func(ctx context.Context, in *previewIDInput) (*struct{}, error) {
 			return nil, s.previews.Stop(ctx, account(ctx), in.ID)
 		})
@@ -88,19 +88,7 @@ func (s *server) registerTunnel(mux *http.ServeMux) {
 		},
 		Responses: map[string]*huma.Response{
 			"101": {Description: "Switching Protocols"},
-			"401": s.errorResponse(http.StatusUnauthorized),
-			"404": s.errorResponse(http.StatusNotFound),
-			"503": s.errorResponse(http.StatusServiceUnavailable),
 		},
+		Metadata: map[string]any{errorsKey: []api.ErrorKind{api.KindPreviewNotFound, api.KindPreviewsUnavailable}},
 	})
-}
-
-// errorResponse documents an api.Error answer, for operations written into the document by hand.
-func (s *server) errorResponse(status int) *huma.Response {
-	return &huma.Response{
-		Description: http.StatusText(status),
-		Content: map[string]*huma.MediaType{
-			"application/json": {Schema: s.api.OpenAPI().Components.Schemas.Schema(errorType, true, "")},
-		},
-	}
 }

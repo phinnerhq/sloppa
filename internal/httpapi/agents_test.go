@@ -61,7 +61,7 @@ func TestAgentNamesAreValidated(t *testing.T) {
 	session := h.login()
 	for _, name := range []string{"", "   ", strings.Repeat("x", api.AgentNameMax+1)} {
 		res := h.send(h.req("POST", "/api/agents", map[string]string{"name": name}).cookie(session))
-		if tag, _ := errorTag(t, res); res.Code != http.StatusBadRequest || tag != "BadRequest" {
+		if code, _ := errorCode(t, res); res.Code != http.StatusBadRequest || code != "bad_request" {
 			t.Errorf("create %q: %d %s", name, res.Code, res.Body)
 		}
 		res = h.send(h.req("PATCH", "/api/agents/x", map[string]string{"name": name}).cookie(session))

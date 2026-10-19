@@ -110,7 +110,7 @@ func (c *client) call(ctx context.Context, method, path string, query url.Values
 func decodeError(resp *http.Response) error {
 	e := &api.Error{}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, errorBodyMax))
-	if json.Unmarshal(body, e) != nil || e.Tag == "" {
+	if json.Unmarshal(body, e) != nil || e.Code == "" {
 		e = &api.Error{Message: "the server answered " + resp.Status}
 	}
 	e.Status = resp.StatusCode

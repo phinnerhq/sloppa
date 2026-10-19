@@ -3,5 +3,5 @@
   "printWidth": 120,
   "semi": false,
   "trailingComma": "none",
-  "ignorePatterns": ["internal/**/testdata/**", "internal/webui/dist/**"]
+  "ignorePatterns": ["internal/**/testdata/**", "internal/webui/dist/**", "openapi.json"]
 }

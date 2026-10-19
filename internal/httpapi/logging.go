@@ -10,6 +10,8 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+
+	"github.com/phinnerhq/sloppa/internal/api"
 )
 
 // logPath is a request's path as logged: setup links carry their secret in theirs. It may be spelled
@@ -59,7 +61,7 @@ func recoverPanics(next http.Handler) http.Handler {
 			slog.ErrorContext(r.Context(), "Handler panicked", "method", r.Method, "path", logPath(r.URL.Path),
 				"panic", fmt.Sprint(v), "stack", string(debug.Stack()))
 			if rec.code == 0 {
-				writeError(rec, r, internalError())
+				writeError(rec, r, api.InternalError())
 				return
 			}
 			panic(http.ErrAbortHandler)

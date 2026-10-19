@@ -118,11 +118,11 @@ func (s *server) fileError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, storage.ErrNotFound) || e != nil && e.Status == http.StatusNotFound:
 		notFound(w)
-	case e != nil && (e.Message != "" || e.RetryAfter > 0):
-		if e.RetryAfter > 0 {
-			w.Header().Set("Retry-After", strconv.Itoa(e.RetryAfter))
+	case e != nil && e.Message != "":
+		for key, values := range e.GetHeaders() {
+			w.Header()[key] = values
 		}
-		text(w, e.Status, e.Error())
+		text(w, e.Status, e.Message)
 	default:
 		slog.ErrorContext(r.Context(), "Couldn't read a file", "path", logPath(r.URL.Path), "error", err)
 		text(w, http.StatusBadGateway, "Couldn't read the file from storage")

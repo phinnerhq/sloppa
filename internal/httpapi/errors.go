@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -16,21 +15,8 @@ import (
 	"github.com/phinnerhq/sloppa/internal/api"
 )
 
-// internalError is what clients see of a failure that isn't theirs; the cause goes to the log.
-func internalError() *api.Error {
-	return &api.Error{Status: http.StatusInternalServerError, Tag: "InternalServerError", Message: "Something went wrong on the server"}
-}
-
-func forbidden(message string) *api.Error {
-	return &api.Error{Status: http.StatusForbidden, Tag: "Forbidden", Message: message}
-}
-
-func tooLarge(message string) *api.Error {
-	return &api.Error{Status: http.StatusRequestEntityTooLarge, Tag: "PayloadTooLarge", Message: message}
-}
-
 // Huma's own errors (validation, unreadable bodies, panics in handlers) are api.Errors too, so
-// every error body the API sends is tagged and the dashboard's client can tell them apart.
+// every error body the API sends has a code to tell it by.
 func init() {
 	huma.NewError = newError
 	huma.NewErrorWithContext = func(_ huma.Context, status int, msg string, errs ...error) huma.StatusError {
@@ -48,14 +34,15 @@ func newError(status int, msg string, errs ...error) huma.StatusError {
 	switch {
 	case status >= 500:
 		slog.Error("Request failed", "error", errors.Join(errs...), "status", status, "message", msg)
-		return internalError()
+		return api.InternalError()
 	case status == http.StatusUnprocessableEntity || status == http.StatusBadRequest:
-		// Huma reports invalid input as 422; the API always has, and the client expects, 400.
+		// Huma reports invalid input as 422: all input the API refuses is a 400, the bad_request it documents.
 		return api.BadRequest(describe(msg, errs))
 	case status == http.StatusRequestEntityTooLarge:
-		return tooLarge(describe(msg, errs))
+		return api.PayloadTooLarge(describe(msg, errs))
 	}
-	return &api.Error{Status: status, Tag: strings.ReplaceAll(http.StatusText(status), " ", ""), Message: describe(msg, errs)}
+	code := strings.ToLower(strings.ReplaceAll(http.StatusText(status), " ", "_"))
+	return &api.Error{Status: status, Code: code, Message: describe(msg, errs)}
 }
 
 // describe is msg and what's wrong where, like `validation failed: body.name: expected length >= 1`.
@@ -92,7 +79,10 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var e *api.Error
 	if !errors.As(err, &e) {
 		slog.ErrorContext(r.Context(), "Request failed", "method", r.Method, "path", logPath(r.URL.Path), "error", err)
-		e = internalError()
+		e = api.InternalError()
+	}
+	for key, values := range e.GetHeaders() {
+		w.Header()[key] = values
 	}
 	writeJSON(w, e.Status, e)
 }
@@ -109,7 +99,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // marshalJSON leaves HTML characters as they are (the setup prompt is full of `<app>` and `&&`),
-// and no trailing newline, like the TypeScript server.
+// and no trailing newline.
 func marshalJSON(w io.Writer, v any) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -120,7 +110,5 @@ func marshalJSON(w io.Writer, v any) error {
 	_, err := w.Write(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
 	return err
 }
-
-var errorType = reflect.TypeFor[api.Error]()
 
 var jsonFormat = huma.Format{Marshal: marshalJSON, Unmarshal: json.Unmarshal}

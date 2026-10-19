@@ -69,7 +69,7 @@ func mustSignIn(t *testing.T, s *accounts.Service, pass string) session {
 func signsIn(t *testing.T, s *accounts.Service, pass string) bool {
 	t.Helper()
 	_, err := signIn(t, s, pass)
-	if err != nil && !isTag(err, "InvalidCredentials") {
+	if err != nil && !api.KindInvalidCredentials.Is(err) {
 		t.Fatal(err)
 	}
 	return err == nil
@@ -82,11 +82,6 @@ func isSignedIn(t *testing.T, s *accounts.Service, token string) bool {
 		t.Fatal(err)
 	}
 	return ok
-}
-
-func isTag(err error, tag string) bool {
-	var e *api.Error
-	return errors.As(err, &e) && e.Tag == tag
 }
 
 func TestKeepsAPasswordChangedInTheAppWhenTheBootstrapOneStaysSet(t *testing.T) {
@@ -180,7 +175,7 @@ func TestSignsOutEveryOtherBrowserOnAChangeAndRefusesAWrongCurrentPassword(t *te
 	there := mustSignIn(t, s, "first-pass")
 
 	err := s.ChangePassword(t.Context(), here.account, here.token, "not-it", "second-pass")
-	if !isTag(err, "InvalidCredentials") {
+	if !api.KindInvalidCredentials.Is(err) {
 		t.Fatalf("wrong current password: %v", err)
 	}
 	if !isSignedIn(t, s, there.token) {
@@ -232,7 +227,7 @@ func TestLoginRefusesUnknownUsers(t *testing.T) {
 	defer d.Close()
 	s := boot(t, d, "first-pass")
 	_, _, _, err := s.Login(t.Context(), "nobody", "first-pass", "")
-	if !isTag(err, "InvalidCredentials") {
+	if !api.KindInvalidCredentials.Is(err) {
 		t.Fatalf("unknown user: %v", err)
 	}
 }
@@ -244,17 +239,17 @@ func TestLoginIsThrottled(t *testing.T) {
 		s := boot(t, d, "first-pass")
 		ctx := t.Context()
 		for i := range 5 {
-			if _, _, _, err := s.Login(ctx, "admin", "wrong", "10.0.0.1"); !isTag(err, "InvalidCredentials") {
+			if _, _, _, err := s.Login(ctx, "admin", "wrong", "10.0.0.1"); !api.KindInvalidCredentials.Is(err) {
 				t.Fatalf("attempt %d: %v", i+1, err)
 			}
 		}
 		_, _, _, err := s.Login(ctx, "admin", "first-pass", "10.0.0.2")
 		var e *api.Error
-		if !errors.As(err, &e) || e.Tag != "TooManyAttempts" || e.RetryAfter != 1 || e.Status != 429 {
+		if !errors.As(err, &e) || e.Code != "too_many_attempts" || e.RetryAfter != 1 || e.Status != 429 {
 			t.Fatalf("sixth attempt: %#v", err)
 		}
 		// Another username from the same address waits too.
-		if _, _, _, err := s.Login(ctx, "someone", "x", "10.0.0.1"); !isTag(err, "TooManyAttempts") {
+		if _, _, _, err := s.Login(ctx, "someone", "x", "10.0.0.1"); !api.KindTooManyAttempts.Is(err) {
 			t.Fatalf("same address: %v", err)
 		}
 
@@ -263,7 +258,7 @@ func TestLoginIsThrottled(t *testing.T) {
 			t.Fatalf("after the wait: %v", err)
 		}
 		// A success forgets the failures.
-		if _, _, _, err := s.Login(ctx, "admin", "wrong", "10.0.0.2"); !isTag(err, "InvalidCredentials") {
+		if _, _, _, err := s.Login(ctx, "admin", "wrong", "10.0.0.2"); !api.KindInvalidCredentials.Is(err) {
 			t.Fatalf("after a success: %v", err)
 		}
 	})
@@ -277,14 +272,14 @@ func TestLoginThrottlesIPv6ClientsBy64(t *testing.T) {
 		s := boot(t, d, "first-pass")
 		for i := range 5 {
 			_, _, _, err := s.Login(t.Context(), fmt.Sprintf("user%d", i), "x", fmt.Sprintf("2001:db8::%x", i+1))
-			if !isTag(err, "InvalidCredentials") {
+			if !api.KindInvalidCredentials.Is(err) {
 				t.Fatalf("attempt %d: %v", i+1, err)
 			}
 		}
-		if _, _, _, err := s.Login(t.Context(), "user5", "x", "2001:db8::ffff:6"); !isTag(err, "TooManyAttempts") {
+		if _, _, _, err := s.Login(t.Context(), "user5", "x", "2001:db8::ffff:6"); !api.KindTooManyAttempts.Is(err) {
 			t.Fatalf("another address in the /64: %v", err)
 		}
-		if _, _, _, err := s.Login(t.Context(), "user6", "x", "2001:db8:0:1::1"); !isTag(err, "InvalidCredentials") {
+		if _, _, _, err := s.Login(t.Context(), "user6", "x", "2001:db8:0:1::1"); !api.KindInvalidCredentials.Is(err) {
 			t.Fatalf("another /64: %v", err)
 		}
 	})
@@ -314,8 +309,8 @@ func TestLoginRefusesAFloodPastTheHashingBudget(t *testing.T) {
 	for err := range errs {
 		var e *api.Error
 		switch {
-		case isTag(err, "InvalidCredentials"):
-		case errors.As(err, &e) && e.Tag == "TooManyAttempts" && e.RetryAfter == 1:
+		case api.KindInvalidCredentials.Is(err):
+		case errors.As(err, &e) && e.Code == "too_many_attempts" && e.RetryAfter == 1:
 			busy++
 		default:
 			t.Fatalf("unexpected: %v", err)
@@ -336,7 +331,7 @@ func TestChangePasswordIsThrottled(t *testing.T) {
 			s.ChangePassword(t.Context(), here.account, here.token, "wrong", "second-pass")
 		}
 		err := s.ChangePassword(t.Context(), here.account, here.token, "first-pass", "second-pass")
-		if !isTag(err, "TooManyAttempts") {
+		if !api.KindTooManyAttempts.Is(err) {
 			t.Fatalf("sixth change: %v", err)
 		}
 	})

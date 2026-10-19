@@ -1,6 +1,6 @@
-// Package api is the HTTP API's wire format, shared by the server and the CLI. The JSON matches what
-// the dashboard's client expects: optional fields are left out rather than null, times are UTC with
-// millisecond precision, and errors carry a `_tag` naming them.
+// Package api is the HTTP API's wire format, shared by the server and the CLI. Optional fields are
+// left out rather than null, times are UTC with millisecond precision, and errors carry a code
+// naming them (see Error).
 package api
 
 import (
@@ -177,58 +177,6 @@ type StartedPreview struct {
 	// TunnelURL is the WebSocket the CLI connects to, with its agent token as a bearer.
 	TunnelURL string    `json:"tunnelUrl"`
 	ExpiresAt time.Time `json:"expiresAt"`
-}
-
-// Error is an API failure as sent: an HTTP status and a JSON body tagged with what went wrong, like
-// {"_tag":"ArtifactNotFound","id":"…"}.
-type Error struct {
-	Status int    `json:"-"`
-	Tag    string `json:"_tag"`
-	// Message, ID and RetryAfter are set by the errors that carry them.
-	Message string `json:"message,omitempty"`
-	ID      string `json:"id,omitempty"`
-	// RetryAfter is in seconds, for TooManyAttempts.
-	RetryAfter int `json:"retryAfter,omitempty"`
-}
-
-func (e *Error) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.ID != "" {
-		return fmt.Sprintf("%s: %s", e.Tag, e.ID)
-	}
-	return e.Tag
-}
-
-func (e *Error) GetStatus() int { return e.Status }
-
-func ArtifactNotFound(id string) *Error { return &Error{Status: 404, Tag: "ArtifactNotFound", ID: id} }
-func PreviewNotFound(id string) *Error  { return &Error{Status: 404, Tag: "PreviewNotFound", ID: id} }
-func Unauthorized(message string) *Error {
-	return &Error{Status: 401, Tag: "Unauthorized", Message: message}
-}
-func InvalidCredentials() *Error { return &Error{Status: 401, Tag: "InvalidCredentials"} }
-func TooManyAttempts(retryAfter int) *Error {
-	return &Error{Status: 429, Tag: "TooManyAttempts", RetryAfter: retryAfter}
-}
-func StorageError(message string) *Error {
-	return &Error{Status: 502, Tag: "StorageError", Message: message}
-}
-
-// PreviewsUnavailable means previews aren't configured on this server.
-func PreviewsUnavailable(message string) *Error {
-	return &Error{Status: 503, Tag: "PreviewsUnavailable", Message: message}
-}
-
-// PreviewNameTaken means another live preview holds the name.
-func PreviewNameTaken(name string) *Error {
-	return &Error{Status: 409, Tag: "PreviewNameTaken", Message: fmt.Sprintf("%q is taken by another preview right now", name)}
-}
-
-// BadRequest is input the API refuses, with what's wrong with it.
-func BadRequest(message string) *Error {
-	return &Error{Status: 400, Tag: "BadRequest", Message: message}
 }
 
 var previewName = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$`)

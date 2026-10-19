@@ -63,11 +63,8 @@ func (s *server) registerUpload(mux *http.ServeMux) {
 					"application/json": {Schema: registry.Schema(reflect.TypeFor[[]api.Artifact](), true, "")},
 				},
 			},
-			"400": s.errorResponse(http.StatusBadRequest),
-			"401": s.errorResponse(http.StatusUnauthorized),
-			"413": s.errorResponse(http.StatusRequestEntityTooLarge),
-			"502": s.errorResponse(http.StatusBadGateway),
 		},
+		Metadata: map[string]any{errorsKey: []api.ErrorKind{api.KindStorageError}},
 	})
 }
 
@@ -166,9 +163,9 @@ func requestBodyError(err error) error {
 	var tooBig *http.MaxBytesError
 	switch {
 	case errors.Is(err, errFileTooLarge):
-		return tooLarge(fmt.Sprintf("Each file can be at most %d MiB", api.MaxUploadBytes>>20))
+		return api.PayloadTooLarge(fmt.Sprintf("Each file can be at most %d MiB", api.MaxUploadBytes>>20))
 	case errors.As(err, &tooBig):
-		return tooLarge(fmt.Sprintf("An upload can be at most %d MiB in all", tooBig.Limit>>20))
+		return api.PayloadTooLarge(fmt.Sprintf("An upload can be at most %d MiB in all", tooBig.Limit>>20))
 	}
 	return api.BadRequest("Couldn't read the multipart body: " + err.Error())
 }

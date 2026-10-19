@@ -117,7 +117,7 @@ func (s *server) registerArtifacts() {
 		})
 
 	get := s.operation("Artifacts", "artifacts.get", http.MethodGet, "/api/artifacts/{id}", public,
-		http.StatusNotFound, http.StatusBadGateway)
+		api.KindArtifactNotFound, api.KindStorageError)
 	get.Description = "Needs no sign-in: the random id is what makes a shared link unguessable."
 	huma.Register(s.api, get, func(ctx context.Context, in *artifactIDInput) (*artifactOutput, error) {
 		a, err := s.artifacts.Get(ctx, in.ID)
@@ -128,7 +128,7 @@ func (s *server) registerArtifacts() {
 	})
 
 	move := s.operation("Artifacts", "artifacts.move", http.MethodPatch, "/api/artifacts/{id}", signedIn,
-		http.StatusNotFound, http.StatusBadGateway)
+		api.KindArtifactNotFound, api.KindStorageError)
 	move.Description = "Files an artifact under another collection; its links stay the same."
 	huma.Register(s.api, move, func(ctx context.Context, in *moveInput) (*artifactOutput, error) {
 		collection, err := trimmedName("collection", in.Body.Collection, api.CollectionMax)
@@ -143,7 +143,7 @@ func (s *server) registerArtifacts() {
 	})
 
 	huma.Register(s.api, s.operation("Artifacts", "artifacts.delete", http.MethodDelete, "/api/artifacts/{id}", signedIn,
-		http.StatusNotFound, http.StatusBadGateway),
+		api.KindArtifactNotFound, api.KindStorageError),
 		func(ctx context.Context, in *artifactIDInput) (*struct{}, error) {
 			return nil, s.artifacts.Remove(ctx, in.ID)
 		})

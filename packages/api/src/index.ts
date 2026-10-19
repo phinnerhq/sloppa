@@ -74,35 +74,64 @@ export class Stats extends Schema.Class<Stats, { readonly brand: unique symbol }
   lastUploadAt: Schema.optionalKey(Schema.DateTimeUtcFromString)
 }) {}
 
+/**
+ * An API error as the server sends it, `{"code": "artifact_not_found", "message": …}`, read as a
+ * tagged error whose `_tag` is the code.
+ */
+const wire = <S extends Schema.Top & { readonly fields: Schema.Struct.Fields & { readonly _tag: Schema.Top } }>(
+  error: S,
+  status: number
+) => error.pipe(Schema.encodeKeys({ _tag: "code" }), Schema.annotate({ httpApiStatus: status }))
+
 export class ArtifactNotFound extends Schema.TaggedError<ArtifactNotFound, { readonly brand: unique symbol }>()(
-  "ArtifactNotFound",
-  { id: Schema.String },
-  { httpApiStatus: 404 }
+  "artifact_not_found",
+  { message: Schema.String, id: Schema.String }
 ) {}
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized, { readonly brand: unique symbol }>()(
-  "Unauthorized",
-  { message: Schema.String },
-  { httpApiStatus: 401 }
+  "unauthorized",
+  { message: Schema.String }
 ) {}
 
 export class StorageError extends Schema.TaggedError<StorageError, { readonly brand: unique symbol }>()(
-  "StorageError",
-  { message: Schema.String },
-  { httpApiStatus: 502 }
+  "storage_error",
+  { message: Schema.String }
 ) {}
 
 export class InvalidCredentials extends Schema.TaggedError<InvalidCredentials, { readonly brand: unique symbol }>()(
-  "InvalidCredentials",
-  {},
-  { httpApiStatus: 401 }
+  "invalid_credentials",
+  { message: Schema.String }
 ) {}
 
 export class TooManyAttempts extends Schema.TaggedError<TooManyAttempts, { readonly brand: unique symbol }>()(
-  "TooManyAttempts",
-  { /** Seconds until the next attempt counts. */ retryAfter: Schema.Int },
-  { httpApiStatus: 429 }
+  "too_many_attempts",
+  {
+    message: Schema.String,
+    /** Seconds until the next attempt counts. */ retryAfter: Schema.Int
+  }
 ) {}
+
+export class PreviewNotFound extends Schema.TaggedError<PreviewNotFound, { readonly brand: unique symbol }>()(
+  "preview_not_found",
+  { message: Schema.String, id: Schema.String }
+) {}
+
+/** Previews aren't configured on this server. */
+export class PreviewsUnavailable extends Schema.TaggedError<PreviewsUnavailable, { readonly brand: unique symbol }>()(
+  "previews_unavailable",
+  { message: Schema.String }
+) {}
+
+/** The errors as endpoints declare them: read from, and written as, what the server sends. */
+const errors = {
+  ArtifactNotFound: wire(ArtifactNotFound, 404),
+  Unauthorized: wire(Unauthorized, 401),
+  StorageError: wire(StorageError, 502),
+  InvalidCredentials: wire(InvalidCredentials, 401),
+  TooManyAttempts: wire(TooManyAttempts, 429),
+  PreviewNotFound: wire(PreviewNotFound, 404),
+  PreviewsUnavailable: wire(PreviewsUnavailable, 503)
+}
 
 export class User extends Schema.Class<User, { readonly brand: unique symbol }>("User")({
   username: Schema.String
@@ -157,7 +186,7 @@ export class Authorization extends HttpApiMiddleware.Service<
   }
 >()("sloppa/api/Authorization", {
   security: { session: sessionCookie, bearer: HttpApiSecurity.bearer },
-  error: Unauthorized
+  error: errors.Unauthorized
 }) {}
 
 /**
@@ -174,7 +203,7 @@ export class SessionAuthorization extends HttpApiMiddleware.Service<
   }
 >()("sloppa/api/SessionAuthorization", {
   security: { session: sessionCookie },
-  error: Unauthorized
+  error: errors.Unauthorized
 }) {}
 
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
@@ -211,7 +240,7 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
     HttpApiEndpoint.get("get", "/api/artifacts/:id", {
       params: { id: ArtifactId },
       success: Artifact,
-      error: [ArtifactNotFound, StorageError]
+      error: [errors.ArtifactNotFound, errors.StorageError]
     }),
     HttpApiEndpoint.post("upload", "/api/artifacts", {
       payload: Schema.Struct({
@@ -226,18 +255,18 @@ export class ArtifactsGroup extends HttpApiGroup.make("artifacts")
         })
       ),
       success: Schema.Array(Artifact),
-      error: StorageError
+      error: errors.StorageError
     }).middleware(Authorization),
     HttpApiEndpoint.patch("move", "/api/artifacts/:id", {
       params: { id: ArtifactId },
       payload: Schema.Struct({ collection: CollectionName }),
       success: Artifact,
-      error: [ArtifactNotFound, StorageError]
+      error: [errors.ArtifactNotFound, errors.StorageError]
     }).middleware(Authorization),
     HttpApiEndpoint.delete("delete", "/api/artifacts/:id", {
       params: { id: ArtifactId },
       success: HttpApiSchema.NoContent,
-      error: [ArtifactNotFound, StorageError]
+      error: [errors.ArtifactNotFound, errors.StorageError]
     }).middleware(Authorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Artifacts" })) {}
@@ -253,7 +282,7 @@ export class SessionGroup extends HttpApiGroup.make("session")
         password: Schema.String.check(Schema.isMaxLength(1024))
       }),
       success: User,
-      error: [InvalidCredentials, TooManyAttempts]
+      error: [errors.InvalidCredentials, errors.TooManyAttempts]
     }),
     HttpApiEndpoint.get("current", "/api/session", { success: User }).middleware(Authorization),
     HttpApiEndpoint.delete("logout", "/api/session", { success: HttpApiSchema.NoContent }).middleware(Authorization),
@@ -264,7 +293,7 @@ export class SessionGroup extends HttpApiGroup.make("session")
         next: Schema.String.check(Schema.isMinLength(PASSWORD_MIN), Schema.isMaxLength(1024))
       }),
       success: HttpApiSchema.NoContent,
-      error: [InvalidCredentials, TooManyAttempts]
+      error: [errors.InvalidCredentials, errors.TooManyAttempts]
     }).middleware(SessionAuthorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Session" })) {}
@@ -336,24 +365,11 @@ export class StartedPreview extends Schema.Class<StartedPreview, { readonly bran
   expiresAt: Schema.DateTimeUtcFromString
 }) {}
 
-export class PreviewNotFound extends Schema.TaggedError<PreviewNotFound, { readonly brand: unique symbol }>()(
-  "PreviewNotFound",
-  { id: Schema.String },
-  { httpApiStatus: 404 }
-) {}
-
-/** Previews aren't configured on this server. */
-export class PreviewsUnavailable extends Schema.TaggedError<PreviewsUnavailable, { readonly brand: unique symbol }>()(
-  "PreviewsUnavailable",
-  { message: Schema.String },
-  { httpApiStatus: 503 }
-) {}
-
 export class PreviewsGroup extends HttpApiGroup.make("previews")
   .add(
     HttpApiEndpoint.get("list", "/api/previews", {
       success: Schema.Array(Preview),
-      error: PreviewsUnavailable
+      error: errors.PreviewsUnavailable
     }).middleware(Authorization),
     HttpApiEndpoint.post("start", "/api/previews", {
       payload: Schema.Struct({
@@ -369,12 +385,12 @@ export class PreviewsGroup extends HttpApiGroup.make("previews")
         hostname: Schema.optionalKey(Schema.String)
       }),
       success: StartedPreview,
-      error: PreviewsUnavailable
+      error: errors.PreviewsUnavailable
     }).middleware(Authorization),
     HttpApiEndpoint.delete("stop", "/api/previews/:id", {
       params: { id: Schema.String },
       success: HttpApiSchema.NoContent,
-      error: [PreviewNotFound, PreviewsUnavailable]
+      error: [errors.PreviewNotFound, errors.PreviewsUnavailable]
     }).middleware(Authorization)
   )
   .annotateMerge(OpenApi.annotations({ title: "Previews" })) {}

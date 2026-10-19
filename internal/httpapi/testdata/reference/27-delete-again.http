@@ -1,5 +1,0 @@
-HTTP/1.1 404 Not Found
-content-type: application/json
-content-length: 71
-
-{"_tag":"ArtifactNotFound","id":"f1f8369a-8ed1-466c-afbd-39d7e7cc7c67"}

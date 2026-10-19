@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -35,121 +37,73 @@ type openAPIOperation struct {
 	} `json:"requestBody"`
 }
 
-func TestOpenAPIDocumentsEveryRoute(t *testing.T) {
-	h := newHarness(t)
-	res := h.do("GET", "/api/openapi.json", nil)
-	if res.Code != http.StatusOK {
-		t.Fatalf("%d %s", res.Code, res.Body)
-	}
-	var got, want openAPIDoc
-	if err := json.Unmarshal(res.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile("testdata/reference/openapi.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &want); err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.HasPrefix(got.OpenAPI, "3.1") {
-		t.Errorf("openapi %q", got.OpenAPI)
-	}
-	for name, scheme := range want.Components.SecuritySchemes {
-		for key, value := range scheme {
-			if got.Components.SecuritySchemes[name][key] != value {
-				t.Errorf("security scheme %s: %v, want %v", name, got.Components.SecuritySchemes[name], scheme)
-			}
-		}
-	}
-
-	// The tunnel is new: the TypeScript server took it on the preview domain, with a ticket.
-	want.Paths["/api/previews/{id}/tunnel"] = map[string]openAPIOperation{
-		"get": {OperationID: "previews.tunnel", Security: []map[string][]string{{"session": {}}, {"bearer": {}}}, Responses: map[string]json.RawMessage{"401": nil}},
-	}
-	for path, ops := range want.Paths {
-		for method, w := range ops {
-			g, ok := got.Paths[path][method]
-			if !ok {
-				t.Errorf("%s %s isn't documented", strings.ToUpper(method), path)
-				continue
-			}
-			if g.OperationID != w.OperationID {
-				t.Errorf("%s %s: operationId %q, want %q", method, path, g.OperationID, w.OperationID)
-			}
-			if !sameSecurity(g.Security, w.Security) {
-				t.Errorf("%s %s: security %v, want %v", method, path, g.Security, w.Security)
-			}
-			for _, p := range w.Parameters {
-				if !slices.ContainsFunc(g.Parameters, func(q struct{ Name, In string }) bool { return q == p }) {
-					t.Errorf("%s %s: no %s parameter %s", method, path, p.In, p.Name)
-				}
-			}
-			for status := range w.Responses {
-				if _, ok := g.Responses[status]; !ok {
-					t.Errorf("%s %s: no %s response", method, path, status)
-				}
-			}
-			if _, ok := g.Responses["422"]; ok {
-				t.Errorf("%s %s: documents a 422, sent as a 400", method, path)
-			}
-			if (w.RequestBody == nil) != (g.RequestBody == nil) {
-				t.Errorf("%s %s: request body %v, want %v", method, path, g.RequestBody != nil, w.RequestBody != nil)
-			}
-			if w.RequestBody != nil {
-				for contentType := range w.RequestBody.Content {
-					if _, ok := g.RequestBody.Content[contentType]; !ok {
-						t.Errorf("%s %s: no %s request body", method, path, contentType)
-					}
-				}
-			}
-		}
-	}
-	for path, ops := range got.Paths {
-		for method := range ops {
-			if _, ok := want.Paths[path][method]; !ok {
-				t.Errorf("%s %s is documented but wasn't an API route", strings.ToUpper(method), path)
-			}
-		}
-	}
-}
-
-// sameSecurity ignores the TypeScript document listing an empty requirement for public routes.
-func sameSecurity(got, want []map[string][]string) bool {
-	if len(want) == 0 {
-		return len(got) == 0
-	}
-	if len(got) != len(want) {
-		return false
-	}
-	for i := range want {
-		for name := range want[i] {
-			if _, ok := got[i][name]; !ok {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-func TestErrorResponsesAreDocumentedAsTagged(t *testing.T) {
+func TestErrorResponsesAreDocumentedByCode(t *testing.T) {
 	h := newHarness(t)
 	var doc struct {
+		Paths      map[string]map[string]struct{ Responses map[string]json.RawMessage }
 		Components struct {
 			Schemas map[string]struct {
-				Properties map[string]any
+				Properties map[string]struct{ Const string }
 				Required   []string
 			}
 		}
 	}
 	json.Unmarshal(h.do("GET", "/api/openapi.json", nil).Body.Bytes(), &doc)
-	e, ok := doc.Components.Schemas["Error"]
-	if !ok {
-		t.Fatalf("no Error schema in %v", doc.Components.Schemas)
+	for _, kind := range api.ErrorKinds {
+		s, ok := doc.Components.Schemas[kind.Name()]
+		if !ok {
+			t.Errorf("no %s schema", kind.Name())
+			continue
+		}
+		if s.Properties["code"].Const != kind.Code || !slices.Contains(s.Required, "code") || !slices.Contains(s.Required, "message") {
+			t.Errorf("%s schema %+v", kind.Name(), s)
+		}
+		if kind.Field != "" && !slices.Contains(s.Required, kind.Field) {
+			t.Errorf("%s schema doesn't require %s", kind.Name(), kind.Field)
+		}
 	}
-	if _, ok := e.Properties["_tag"]; !ok || !slices.Equal(e.Required, []string{"_tag"}) {
-		t.Errorf("Error schema %+v", e)
+	login := doc.Paths["/api/session"]["post"].Responses
+	if !strings.Contains(string(login["401"]), "#/components/schemas/InvalidCredentials") ||
+		!strings.Contains(string(login["429"]), "#/components/schemas/TooManyAttempts") {
+		t.Errorf("login's errors: %s", login)
+	}
+	password := string(doc.Paths["/api/session/password"]["put"].Responses["401"])
+	if !strings.Contains(password, `"propertyName":"code"`) || !strings.Contains(password, "InvalidCredentials") ||
+		!strings.Contains(password, "Unauthorized") {
+		t.Errorf("a status with several errors isn't a union by code: %s", password)
+	}
+	// The hand-written operations are documented like the rest.
+	for path, method := range map[string]string{"/api/artifacts": "post", "/api/previews/{id}/tunnel": "get"} {
+		if _, ok := doc.Paths[path][method].Responses["401"]; !ok {
+			t.Errorf("%s %s isn't documented", method, path)
+		}
+	}
+}
+
+// openapi.json at the repository's root is what the dashboard's client is generated from.
+var updateOpenAPI = flag.Bool("update-openapi", false, "rewrite openapi.json from the API")
+
+func TestOpenAPIDocumentIsCommitted(t *testing.T) {
+	h := newHarness(t)
+	var doc any
+	if err := json.Unmarshal(h.do("GET", "/api/openapi.json", nil).Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	got, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	const path = "../../openapi.json"
+	if *updateOpenAPI {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(got, want) {
+		t.Errorf("openapi.json is out of date: run `pnpm gen`")
 	}
 }
 
@@ -171,8 +125,8 @@ func TestStaticDashboard(t *testing.T) {
 		{"/assets/index-abc1.js", "console.log(1)", "public, max-age=31536000, immutable", 200},
 		{"/favicon.svg", "<svg/>", "no-cache", 200},
 		{"/assets/index-old.js", "Not found", "", 404},
-		{"/api/nope", `{"_tag":"NotFound","message":"No such API route"}`, "", 404},
-		{"/api", `{"_tag":"NotFound","message":"No such API route"}`, "", 404},
+		{"/api/nope", `{"code":"not_found","message":"No such API route"}`, "", 404},
+		{"/api", `{"code":"not_found","message":"No such API route"}`, "", 404},
 	} {
 		res := h.do("GET", tc.path, nil)
 		if res.Code != tc.status || res.Body.String() != tc.body || res.Header().Get("Cache-Control") != tc.cache {
@@ -208,7 +162,7 @@ func TestPanicsAreA500(t *testing.T) {
 	handler := New(Deps{Config: cfg, Accounts: nil, Artifacts: panicky{newFakeArtifacts()}, Previews: &fakePreviews{}})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/api/artifacts/"+helloID, nil))
-	if tag, _ := errorTag(t, rec); rec.Code != http.StatusInternalServerError || tag != "InternalServerError" {
+	if code, _ := errorCode(t, rec); rec.Code != http.StatusInternalServerError || code != "internal_error" {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }

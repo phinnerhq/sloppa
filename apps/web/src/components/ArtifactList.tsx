@@ -170,7 +170,7 @@ const SignedIn = () => {
   return AsyncResult.matchWithError(stats, {
     onInitial: () => <Dashboard stats={null} />,
     onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? <Login expired /> : <Dashboard stats={undefined} />,
+      Predicate.isTagged(error, "unauthorized") ? <Login expired /> : <Dashboard stats={undefined} />,
     onDefect: () => <Dashboard stats={undefined} />,
     onSuccess: ({ value }) => <Dashboard stats={value} />
   })
@@ -179,7 +179,7 @@ const SignedIn = () => {
 export const ArtifactList = () =>
   AsyncResult.matchWithError(useAtomValue(sessionAtom), {
     onInitial: () => <Dashboard stats={null} />,
-    onError: (error) => (Predicate.isTagged(error, "Unauthorized") ? <Login /> : <Dashboard stats={undefined} />),
+    onError: (error) => (Predicate.isTagged(error, "unauthorized") ? <Login /> : <Dashboard stats={undefined} />),
     onDefect: () => <Dashboard stats={undefined} />,
     onSuccess: () => <SignedIn />
   })

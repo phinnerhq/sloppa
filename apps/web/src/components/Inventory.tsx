@@ -306,7 +306,7 @@ export const Paged = <P extends Page>({
   return AsyncResult.matchWithError(shown, {
     onInitial: () => skeleton,
     onError: (error) =>
-      Predicate.isTagged(error, "Unauthorized") ? (
+      Predicate.isTagged(error, "unauthorized") ? (
         <Login expired />
       ) : (
         <Notice title="couldn't load artifacts" mood="hiss">

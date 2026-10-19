@@ -37,7 +37,7 @@ func TestNoSessionFromAPasswordChangedMidCheck(t *testing.T) {
 	}
 
 	_, err = s.startSession(t.Context(), checked, secret(32))
-	if e := (*api.Error)(nil); !errors.As(err, &e) || e.Tag != "InvalidCredentials" {
+	if e := (*api.Error)(nil); !errors.As(err, &e) || e.Code != "invalid_credentials" {
 		t.Fatalf("session from the old password: %v", err)
 	}
 	var sessions int

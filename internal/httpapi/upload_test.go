@@ -131,8 +131,8 @@ func TestUploadRefusals(t *testing.T) {
 		"nothing":                    {},
 	} {
 		rec := (h.upload(token, parts...))
-		if tag, msg := errorTag(t, rec); rec.Code != http.StatusBadRequest || tag != "BadRequest" {
-			t.Errorf("%s: %d %s %s", name, rec.Code, tag, msg)
+		if code, msg := errorCode(t, rec); rec.Code != http.StatusBadRequest || code != "bad_request" {
+			t.Errorf("%s: %d %s %s", name, rec.Code, code, msg)
 		}
 	}
 	if len(h.artifacts.items) != 0 {
@@ -157,7 +157,7 @@ func TestUploadFailsAsAWhole(t *testing.T) {
 	h := newHarness(t)
 	h.artifacts.failUpload = 2
 	rec := (h.upload(h.agentToken(), field("collection", "x"), file("a.txt", "", "a"), file("b.txt", "", "b"), file("c.txt", "", "c")))
-	if tag, msg := errorTag(t, rec); rec.Code != http.StatusBadGateway || tag != "StorageError" || msg != "bucket on fire" {
+	if code, msg := errorCode(t, rec); rec.Code != http.StatusBadGateway || code != "storage_error" || msg != "bucket on fire" {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 	if len(h.artifacts.items) != 0 || len(h.artifacts.removed) != 1 {
@@ -179,7 +179,7 @@ func TestUploadLimitsEachFile(t *testing.T) {
 
 	over := part{field: "files", filename: "big.bin", body: io.LimitReader(zeros{}, api.MaxUploadBytes+1)}
 	rec = (h.upload(token, field("collection", "x"), file("small.txt", "", "a"), over))
-	if tag, _ := errorTag(t, rec); rec.Code != http.StatusRequestEntityTooLarge || tag != "PayloadTooLarge" {
+	if code, _ := errorCode(t, rec); rec.Code != http.StatusRequestEntityTooLarge || code != "payload_too_large" {
 		t.Errorf("a file past the limit: %d %s", rec.Code, rec.Body)
 	}
 	if len(h.artifacts.items) != 1 {
@@ -194,7 +194,7 @@ func TestUploadLimitsTheWhole(t *testing.T) {
 		parts = append(parts, part{field: "files", filename: "big.bin", body: io.LimitReader(zeros{}, 50<<20)})
 	}
 	rec := (h.upload(h.agentToken(), parts...))
-	if tag, _ := errorTag(t, rec); rec.Code != http.StatusRequestEntityTooLarge || tag != "PayloadTooLarge" {
+	if code, _ := errorCode(t, rec); rec.Code != http.StatusRequestEntityTooLarge || code != "payload_too_large" {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 	if len(h.artifacts.items) != 0 {

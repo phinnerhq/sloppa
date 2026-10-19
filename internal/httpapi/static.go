@@ -18,7 +18,7 @@ import (
 func static(files fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
-			writeError(w, r, &api.Error{Status: http.StatusNotFound, Tag: "NotFound", Message: "No such API route"})
+			writeError(w, r, api.NotFound("No such API route"))
 			return
 		}
 		if files == nil {

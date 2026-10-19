@@ -145,7 +145,7 @@ func (a *app) previewStopCommand() *cli.Command {
 				// Not running is what was asked for, so a retry succeeds too.
 				_, err := c.call(ctx, http.MethodDelete, "/api/previews/"+url.PathEscape(id), nil, nil, nil)
 				switch {
-				case isTag(err, "PreviewNotFound"):
+				case api.KindPreviewNotFound.Is(err):
 					fmt.Fprintf(stdout(cmd), "not running: %s\n", id)
 				case err != nil:
 					return apiFailure("Couldn't stop "+id, err)

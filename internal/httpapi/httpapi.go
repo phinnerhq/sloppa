@@ -49,7 +49,7 @@ func New(d Deps) http.Handler {
 	s.registerFiles(mux)
 	s.registerSetup(mux)
 	mux.Handle("GET /", static(d.Static))
-	documentBadRequests(s.api.OpenAPI())
+	documentErrors(s.api.OpenAPI())
 
 	return logRequests(recoverPanics(s.previewHosts(mux)))
 }
@@ -80,38 +80,4 @@ func (s *server) previewHosts(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-// operation is the start of a Huma operation: who may call it, and the errors it may answer with
-// besides those.
-func (s *server) operation(tag, id, method, path string, who access, statuses ...int) huma.Operation {
-	op := huma.Operation{
-		OperationID: id,
-		Method:      method,
-		Path:        path,
-		Tags:        []string{tag},
-		Security:    who.security(),
-		Errors:      statuses,
-	}
-	if who != public {
-		op.Errors = append([]int{http.StatusUnauthorized}, op.Errors...)
-		op.Middlewares = huma.Middlewares{s.requireAuth(who)}
-	}
-	return op
-}
-
-// documentBadRequests lists Huma's 422 for invalid input as the 400 it's sent as.
-func documentBadRequests(doc *huma.OpenAPI) {
-	for _, item := range doc.Paths {
-		for _, op := range []*huma.Operation{item.Get, item.Post, item.Put, item.Patch, item.Delete} {
-			if op == nil {
-				continue
-			}
-			if r, ok := op.Responses["422"]; ok {
-				delete(op.Responses, "422")
-				r.Description = http.StatusText(http.StatusBadRequest)
-				op.Responses["400"] = r
-			}
-		}
-	}
 }

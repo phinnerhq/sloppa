@@ -184,7 +184,7 @@ func (a *app) getCommand() *cli.Command {
 				return err
 			}
 			artifact, raw, err := getArtifact(ctx, c, id)
-			if isTag(err, "ArtifactNotFound") {
+			if api.KindArtifactNotFound.Is(err) {
 				return noArtifact(id)
 			} else if err != nil {
 				return apiFailure("Couldn't look it up", err)
@@ -223,7 +223,7 @@ func (a *app) moveCommand() *cli.Command {
 			}
 			var artifact api.Artifact
 			raw, err := c.call(ctx, http.MethodPatch, "/api/artifacts/"+url.PathEscape(id), nil, api.MoveArtifact{Collection: collection}, &artifact)
-			if isTag(err, "ArtifactNotFound") {
+			if api.KindArtifactNotFound.Is(err) {
 				return noArtifact(id)
 			} else if err != nil {
 				return apiFailure("Couldn't move it", err)
@@ -274,7 +274,7 @@ func (a *app) deleteCommand() *cli.Command {
 				for _, id := range ids {
 					artifact, _, err := getArtifact(ctx, c, id)
 					switch {
-					case isTag(err, "ArtifactNotFound"):
+					case api.KindArtifactNotFound.Is(err):
 						fmt.Fprintf(out, "already gone: %s\n", id)
 					case err != nil:
 						return apiFailure("Couldn't look it up", err)
@@ -288,7 +288,7 @@ func (a *app) deleteCommand() *cli.Command {
 				// Already gone is what was asked for, so a retry succeeds too.
 				_, err := c.call(ctx, http.MethodDelete, "/api/artifacts/"+url.PathEscape(id), nil, nil, nil)
 				switch {
-				case isTag(err, "ArtifactNotFound"):
+				case api.KindArtifactNotFound.Is(err):
 					fmt.Fprintf(out, "already gone: %s\n", id)
 				case err != nil:
 					return apiFailure("Couldn't delete "+id, err)

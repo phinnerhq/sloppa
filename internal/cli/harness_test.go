@@ -481,7 +481,7 @@ func (f *fakeAPI) tunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if refuse != 0 {
-		writeError(w, &api.Error{Status: refuse, Tag: "StorageError", Message: "not now"})
+		writeError(w, &api.Error{Status: refuse, Code: "storage_error", Message: "not now"})
 		return
 	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{tunnel.Subprotocol}})

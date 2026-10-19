@@ -157,7 +157,7 @@ func (h *harness) agentToken() string {
 	return created.Token
 }
 
-// fixture is a response the TypeScript server sent, from testdata/reference.
+// fixture is a golden response, from testdata/responses.
 type fixture struct {
 	status int
 	header http.Header
@@ -166,7 +166,7 @@ type fixture struct {
 
 func loadFixture(t *testing.T, name string) fixture {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("testdata", "reference", name+".http"))
+	raw, err := os.ReadFile(filepath.Join("testdata", "responses", name+".http"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,8 +183,7 @@ func loadFixture(t *testing.T, name string) fixture {
 var unchecked = map[string]bool{"Content-Length": true, "Transfer-Encoding": true, "Set-Cookie": true, "Date": true}
 
 // like checks res against the fixture: the same status and headers, and a JSON body of the same
-// shape, or the same JSON when exact. A fixture with no body (the TypeScript server's 400s had
-// none) only checks the status.
+// shape, or the same JSON when exact. A fixture with no body only checks the status.
 func like(t *testing.T, res *httptest.ResponseRecorder, name string, exact bool) {
 	t.Helper()
 	f := loadFixture(t, name)
@@ -307,13 +306,10 @@ func fixtureBody[T any](t *testing.T, name string) T {
 	return v
 }
 
-func errorTag(t *testing.T, res *httptest.ResponseRecorder) (tag, message string) {
+func errorCode(t *testing.T, res *httptest.ResponseRecorder) (code, message string) {
 	t.Helper()
-	e := decode[struct {
-		Tag     string `json:"_tag"`
-		Message string `json:"message"`
-	}](t, res)
-	return e.Tag, e.Message
+	e := decode[struct{ Code, Message string }](t, res)
+	return e.Code, e.Message
 }
 
 // TestMain keeps the request log out of test output.

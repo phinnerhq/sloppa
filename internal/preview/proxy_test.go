@@ -388,7 +388,7 @@ func TestUnprotectedPreviewForwardsAuthorization(t *testing.T) {
 // referenceBody is the body of a response the TypeScript server gave, from testdata.
 func referenceBody(t *testing.T, name string) string {
 	t.Helper()
-	raw, err := os.ReadFile("../httpapi/testdata/reference/" + name)
+	raw, err := os.ReadFile("../httpapi/testdata/responses/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}

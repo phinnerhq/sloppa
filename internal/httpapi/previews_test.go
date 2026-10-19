@@ -37,7 +37,7 @@ func TestPreviews(t *testing.T) {
 	}
 
 	res = h.send(h.req("POST", "/api/previews", map[string]any{"name": "taken", "port": 3000}).bearer(token))
-	if tag, _ := errorTag(t, res); res.Code != http.StatusConflict || tag != "PreviewNameTaken" {
+	if code, _ := errorCode(t, res); res.Code != http.StatusConflict || code != "preview_name_taken" {
 		t.Errorf("a taken name: %d %s", res.Code, res.Body)
 	}
 
@@ -45,7 +45,7 @@ func TestPreviews(t *testing.T) {
 		t.Errorf("stop: %d %s", res.Code, res.Body)
 	}
 	res = h.send(h.req("DELETE", "/api/previews/zzzzzzzz", nil).bearer(token))
-	if tag, _ := errorTag(t, res); res.Code != http.StatusNotFound || tag != "PreviewNotFound" {
+	if code, _ := errorCode(t, res); res.Code != http.StatusNotFound || code != "preview_not_found" {
 		t.Errorf("stop an unknown preview: %d %s", res.Code, res.Body)
 	}
 }
@@ -66,7 +66,7 @@ func TestStartPreviewIsValidated(t *testing.T) {
 	} {
 		res := h.send(h.req("POST", "/api/previews", body).bearer(token))
 		like(t, res, "25-preview-start-badname", false)
-		if tag, _ := errorTag(t, res); tag != "BadRequest" {
+		if code, _ := errorCode(t, res); code != "bad_request" {
 			t.Errorf("%v: %s", body, res.Body)
 		}
 	}

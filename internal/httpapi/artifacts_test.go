@@ -91,7 +91,7 @@ func TestListingBounds(t *testing.T) {
 		"/api/collections/mosaic?limit=0", "/api/collections/mosaic?limit=101",
 	} {
 		res := h.send(h.req("GET", path, nil).cookie(session))
-		if tag, msg := errorTag(t, res); res.Code != http.StatusBadRequest || tag != "BadRequest" || !strings.Contains(msg, "limit") {
+		if code, msg := errorCode(t, res); res.Code != http.StatusBadRequest || code != "bad_request" || !strings.Contains(msg, "limit") {
 			t.Errorf("%s: %d %s", path, res.Code, res.Body)
 		}
 	}
@@ -110,8 +110,8 @@ func TestGetArtifact(t *testing.T) {
 
 	res := h.do("GET", "/api/artifacts/not-a-uuid", nil)
 	like(t, res, "16-get-badid", false)
-	if tag, _ := errorTag(t, res); tag != "BadRequest" {
-		t.Errorf("tag %q", tag)
+	if code, _ := errorCode(t, res); code != "bad_request" {
+		t.Errorf("code %q", code)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestMoveArtifact(t *testing.T) {
 	} {
 		res := h.send(move(helloID, body))
 		like(t, res, "18-move-empty", false)
-		if tag, _ := errorTag(t, res); tag != "BadRequest" {
+		if code, _ := errorCode(t, res); code != "bad_request" {
 			t.Errorf("%v: %s", body, res.Body)
 		}
 	}
@@ -162,17 +162,17 @@ func TestDeleteArtifact(t *testing.T) {
 	like(t, h.send(h.req("DELETE", "/api/artifacts/"+helloID, nil).bearer(token)), "27-delete-again", true)
 }
 
-func TestFailuresAreTagged(t *testing.T) {
+func TestFailuresHaveCodes(t *testing.T) {
 	h := newHarness(t)
 	session := h.login()
 	h.artifacts.err = api.StorageError("index unreachable")
 	res := h.send(h.req("GET", "/api/stats", nil).cookie(session))
-	if tag, msg := errorTag(t, res); res.Code != http.StatusBadGateway || tag != "StorageError" || msg != "index unreachable" {
+	if code, msg := errorCode(t, res); res.Code != http.StatusBadGateway || code != "storage_error" || msg != "index unreachable" {
 		t.Errorf("storage error: %d %s", res.Code, res.Body)
 	}
 	h.artifacts.err = fmt.Errorf("wrapped: %w", errBoom)
 	res = h.send(h.req("GET", "/api/stats", nil).cookie(session))
-	if tag, msg := errorTag(t, res); res.Code != http.StatusInternalServerError || tag != "InternalServerError" || strings.Contains(msg, "boom") {
+	if code, msg := errorCode(t, res); res.Code != http.StatusInternalServerError || code != "internal_error" || strings.Contains(msg, "boom") {
 		t.Errorf("unexpected error: %d %s", res.Code, res.Body)
 	}
 }

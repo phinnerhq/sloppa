@@ -114,7 +114,7 @@ func TestLoginValidatesItsBody(t *testing.T) {
 		"not json",
 	} {
 		res := h.send(h.req("POST", "/api/session", body).header("Content-Type", "application/json"))
-		if tag, _ := errorTag(t, res); res.Code != http.StatusBadRequest || tag != "BadRequest" {
+		if code, _ := errorCode(t, res); res.Code != http.StatusBadRequest || code != "bad_request" {
 			t.Errorf("%v: %d %s", body, res.Code, res.Body)
 		}
 	}
@@ -166,16 +166,16 @@ func TestChangePassword(t *testing.T) {
 
 	res := h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "short"}).cookie(here))
 	like(t, res, "28-change-password-short", false)
-	if tag, _ := errorTag(t, res); tag != "BadRequest" {
-		t.Errorf("tag %q", tag)
+	if code, _ := errorCode(t, res); code != "bad_request" {
+		t.Errorf("code %q", code)
 	}
 
 	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": "wrong-password", "next": "second-pass"}).cookie(here))
 	like(t, res, "29-change-password-wrong", true)
 
 	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "second-pass"}).bearer(h.agentToken()))
-	if tag, msg := errorTag(t, res); res.Code != http.StatusUnauthorized || msg != "Sign in from a browser for this" {
-		t.Errorf("as an agent: %d %s %s", res.Code, tag, msg)
+	if code, msg := errorCode(t, res); res.Code != http.StatusUnauthorized || msg != "Sign in from a browser for this" {
+		t.Errorf("as an agent: %d %s %s", res.Code, code, msg)
 	}
 
 	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "second-pass"}).cookie(here))
@@ -235,7 +235,7 @@ func TestCrossOriginProtection(t *testing.T) {
 	body := map[string]string{"name": "x"}
 
 	res := h.send(h.req("POST", "/api/agents", body).cookie(session).header("Sec-Fetch-Site", "cross-site"))
-	if tag, _ := errorTag(t, res); res.Code != http.StatusForbidden || tag != "Forbidden" {
+	if code, _ := errorCode(t, res); res.Code != http.StatusForbidden || code != "forbidden" {
 		t.Errorf("cross-site with the cookie: %d %s", res.Code, res.Body)
 	}
 	// A page on a preview's subdomain is same-site, and still not the app.

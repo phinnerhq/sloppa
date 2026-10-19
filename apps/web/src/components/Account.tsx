@@ -12,8 +12,8 @@ const FIELD = "panel game-field w-full bg-white px-2.5 py-1.5 text-sm font-bold 
 
 /** Why a change didn't go through, in the form's own words. */
 const problemOf = (error: { readonly _tag: string; readonly retryAfter?: number } | undefined) => {
-  if (error?._tag === "TooManyAttempts") return `too many tries, wait ${error.retryAfter ?? 60}s`
-  return error?._tag === "InvalidCredentials" ? "that's not the current password" : "couldn't reach the server"
+  if (error?._tag === "too_many_attempts") return `too many tries, wait ${error.retryAfter ?? 60}s`
+  return error?._tag === "invalid_credentials" ? "that's not the current password" : "couldn't reach the server"
 }
 
 const PasswordForm = ({ username }: { username: string }) => {

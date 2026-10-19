@@ -16,11 +16,11 @@ import (
 	"github.com/phinnerhq/sloppa/internal/tunnel"
 )
 
-func apiError(t *testing.T, err error, tag string) *api.Error {
+func apiError(t *testing.T, err error, kind api.ErrorKind) *api.Error {
 	t.Helper()
 	var e *api.Error
-	if !errors.As(err, &e) || e.Tag != tag {
-		t.Fatalf("expected %s, got %v", tag, err)
+	if !errors.As(err, &e) || e.Code != kind.Code {
+		t.Fatalf("expected %s, got %v", kind.Code, err)
 	}
 	return e
 }
@@ -40,7 +40,7 @@ func TestStartValidates(t *testing.T) {
 		{Port: 65536},
 	} {
 		_, err := e.s.Start(context.Background(), alice, in)
-		if e := apiError(t, err, "BadRequest"); e.Status != 400 || e.Message == "" {
+		if e := apiError(t, err, api.KindBadRequest); e.Status != 400 || e.Message == "" {
 			t.Errorf("%+v: %+v", in, e)
 		}
 	}
@@ -100,10 +100,10 @@ func TestDisabled(t *testing.T) {
 	}
 	defer s.Close()
 	_, err = s.List(context.Background(), alice)
-	apiError(t, err, "PreviewsUnavailable")
+	apiError(t, err, api.KindPreviewsUnavailable)
 	_, err = s.Start(context.Background(), alice, api.StartPreview{Port: 3000})
-	apiError(t, err, "PreviewsUnavailable")
-	apiError(t, s.Stop(context.Background(), alice, "abcd1234"), "PreviewsUnavailable")
+	apiError(t, err, api.KindPreviewsUnavailable)
+	apiError(t, s.Stop(context.Background(), alice, "abcd1234"), api.KindPreviewsUnavailable)
 	if s.IsPreviewHost("demo.preview.test") {
 		t.Fatal("claims a host")
 	}
@@ -139,7 +139,7 @@ func TestStopEndsTheTunnel(t *testing.T) {
 	c := e.serve(started, alice.CredentialID, dev)
 
 	// Only one's own.
-	apiError(t, e.s.Stop(context.Background(), bob, started.ID), "PreviewNotFound")
+	apiError(t, e.s.Stop(context.Background(), bob, started.ID), api.KindPreviewNotFound)
 	c.expectOpen()
 
 	if err := e.s.Stop(context.Background(), alice, started.ID); err != nil {
@@ -148,7 +148,7 @@ func TestStopEndsTheTunnel(t *testing.T) {
 	if closed := c.expectClose(tunnel.CloseStopped); !closed.Final() || closed.Reason != "stopped from sloppa" {
 		t.Fatalf("%+v", closed)
 	}
-	apiError(t, e.s.Stop(context.Background(), alice, started.ID), "PreviewNotFound")
+	apiError(t, e.s.Stop(context.Background(), alice, started.ID), api.KindPreviewNotFound)
 	resp := e.get("http://demo.preview.test/")
 	if body(t, resp); resp.StatusCode != 404 {
 		t.Fatalf("stopped preview still served: %d", resp.StatusCode)
@@ -305,7 +305,7 @@ func TestTunnelWithPreviewsOff(t *testing.T) {
 	defer s.Close()
 	rec := httptest.NewRecorder()
 	s.Tunnel(rec, httptest.NewRequest("GET", "/api/previews/abcd1234/tunnel", nil), "abcd1234")
-	if rec.Code != 503 || !strings.Contains(rec.Body.String(), `"_tag":"PreviewsUnavailable"`) {
+	if rec.Code != 503 || !strings.Contains(rec.Body.String(), `"code":"previews_unavailable"`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
@@ -339,7 +339,7 @@ func TestNames(t *testing.T) {
 
 	// Someone else waits for the name.
 	_, err := e.s.Start(context.Background(), bob, api.StartPreview{Name: "demo", Port: 3000})
-	if e := apiError(t, err, "PreviewNameTaken"); e.Status != 409 {
+	if e := apiError(t, err, api.KindPreviewNameTaken); e.Status != 409 {
 		t.Fatal(e)
 	}
 	c.expectOpen()
@@ -360,7 +360,7 @@ func TestNames(t *testing.T) {
 	// A name that looks like an id is just a name.
 	e.start(bob, api.StartPreview{Name: "abcd1234", Port: 3000})
 	_, err = e.s.Start(context.Background(), alice, api.StartPreview{Name: "abcd1234", Port: 3000})
-	apiError(t, err, "PreviewNameTaken")
+	apiError(t, err, api.KindPreviewNameTaken)
 }
 
 // The name passes to someone else once its preview has been without a tunnel for reconnectGrace.
@@ -382,7 +382,7 @@ func TestNamesFreeUpAfterTheGrace(t *testing.T) {
 
 		time.Sleep(reconnectGrace - time.Second)
 		_, err = s.Start(ctx, bob, api.StartPreview{Name: "demo", Port: 3000})
-		apiError(t, err, "PreviewNameTaken")
+		apiError(t, err, api.KindPreviewNameTaken)
 
 		time.Sleep(time.Second)
 		taken, err := s.Start(ctx, bob, api.StartPreview{Name: "demo", Port: 3000})

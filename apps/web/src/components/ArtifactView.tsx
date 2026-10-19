@@ -359,7 +359,7 @@ const Found = ({ id }: { id: ArtifactId }) => {
   return AsyncResult.matchWithError(result, {
     onInitial: () => <Loading label="loading artifact…" />,
     onError: (error) =>
-      error._tag === "ArtifactNotFound" ? (
+      error._tag === "artifact_not_found" ? (
         <Notice title="artifact not found" mood="hiss">
           it may have been deleted.
         </Notice>

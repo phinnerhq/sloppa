@@ -16,8 +16,8 @@ const waitLabel = (seconds: number) => (seconds < 60 ? `${seconds}s` : `${Math.c
 
 /** What a failed sign-in comes to: too many tries, a wrong password, or no answer at all. */
 const failureOf = (error: { readonly _tag: string; readonly retryAfter?: number } | undefined): Status => {
-  if (error?._tag === "TooManyAttempts" && error.retryAfter !== undefined) return { retryAfter: error.retryAfter }
-  return error?._tag === "InvalidCredentials" ? "rejected" : "failed"
+  if (error?._tag === "too_many_attempts" && error.retryAfter !== undefined) return { retryAfter: error.retryAfter }
+  return error?._tag === "invalid_credentials" ? "rejected" : "failed"
 }
 
 const HEADLINES = { rejected: "wrong username or password", failed: "couldn't reach the server" } as const
