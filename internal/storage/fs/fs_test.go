@@ -72,7 +72,8 @@ func TestReadsSidecarsWithoutCollection(t *testing.T) {
 	}
 }
 
-func TestWritesTheTypeScriptFormat(t *testing.T) {
+// The bytes and the sidecar are laid out as stores already on disk hold them.
+func TestWritesTheSidecarFormat(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
 	a, err := s.Put(t.Context(), storage.PutInput{Name: "n.txt", ContentType: "text/plain", Body: strings.NewReader("hi"), Size: 2, Collection: "c"})

@@ -58,20 +58,6 @@ func upload(t *testing.T, s *Service, name, body, collection string) api.Artifac
 	return a
 }
 
-// reference is the JSON body of a golden response.
-func reference(t *testing.T, name string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "httpapi", "testdata", "responses", name))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, body, ok := strings.Cut(string(data), "\n\n")
-	if !ok {
-		t.Fatalf("%s has no body", name)
-	}
-	return strings.TrimSpace(body)
-}
-
 func asJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)
@@ -90,35 +76,22 @@ func apiError(t *testing.T, err error) *api.Error {
 	return e
 }
 
-// What an upload answers with is shaped as the reference server's.
-func TestUploadAnswersLikeTheGoldenResponse(t *testing.T) {
+// An upload answers with the artifact as the API presents it: its content type resolved from the
+// name when none came, its collection trimmed, and its links on the public URL.
+func TestUploadAnswersWithTheArtifact(t *testing.T) {
 	s := newService(t)
-	var got []map[string]any
-	for _, f := range []struct{ name, contentType, body string }{
-		{"hello.txt", "text/plain", "hello world\n"},
-		{"notes.md", "", "# md\n"},
+	for _, f := range []struct{ name, contentType, body, want string }{
+		{"hello.txt", "text/plain", "hello world\n", "text/plain"},
+		{"notes.md", "", "# md\n", "text/markdown; charset=utf-8"},
 	} {
 		a, err := s.Upload(t.Context(), Upload{Name: f.name, ContentType: f.contentType, Body: strings.NewReader(f.body), Size: int64(len(f.body)), Collection: " owner/repo #42 "})
 		if err != nil {
 			t.Fatal(err)
 		}
-		var m map[string]any
-		json.Unmarshal([]byte(asJSON(t, a)), &m)
-		got = append(got, m)
-	}
-	var want []map[string]any
-	json.Unmarshal([]byte(reference(t, "07-upload.http")), &want)
-	for i := range want {
-		for _, varying := range []string{"id", "createdAt", "url", "rawUrl"} {
-			if _, ok := got[i][varying]; !ok {
-				t.Errorf("upload %d has no %s", i, varying)
-			}
-			delete(got[i], varying)
-			delete(want[i], varying)
+		if a.Name != f.name || a.ContentType != f.want || a.Size != int64(len(f.body)) || a.Collection != "owner/repo #42" ||
+			a.URL != publicURL+"/a/"+a.ID || a.RawURL != publicURL+"/f/"+a.ID+"/"+f.name || a.CreatedAt.IsZero() {
+			t.Errorf("uploaded %s: %+v", f.name, a)
 		}
-	}
-	if asJSON(t, got) != asJSON(t, want) {
-		t.Errorf("got  %s\nwant %s", asJSON(t, got), asJSON(t, want))
 	}
 }
 

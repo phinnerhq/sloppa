@@ -159,28 +159,6 @@ func TestEnvironmentWinsOverTheFile(t *testing.T) {
 	}
 }
 
-func TestReadsTheTypeScriptCLIsLogin(t *testing.T) {
-	fake := newFakeAPI(t)
-	isolate(t)
-	legacy := legacyCredentialsPath()
-	if want := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "sloppa", "credentials.json"); legacy != want {
-		t.Errorf("legacy path %s, want %s", legacy, want)
-	}
-	os.MkdirAll(filepath.Dir(legacy), 0o700)
-	os.WriteFile(legacy, []byte(`{"url":"`+fake.URL+`","token":"`+fake.token+`"}`), 0o600)
-
-	if res := run(t, "", "whoami"); res.code != 0 {
-		t.Errorf("%+v", res)
-	}
-
-	t.Setenv("XDG_CONFIG_HOME", "")
-	if runtime.GOOS != "windows" {
-		if want := filepath.Join(os.Getenv("HOME"), ".config", "sloppa", "credentials.json"); legacyCredentialsPath() != want {
-			t.Errorf("without XDG_CONFIG_HOME: %s, want %s", legacyCredentialsPath(), want)
-		}
-	}
-}
-
 func TestSetupRegistersThisMachine(t *testing.T) {
 	fake := newFakeAPI(t)
 	isolate(t)

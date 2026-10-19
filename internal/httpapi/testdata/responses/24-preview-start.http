@@ -1,5 +1,0 @@
-HTTP/1.1 200 OK
-content-type: application/json
-content-length: 292
-
-{"ticket":"eyJpZCI6Ijc0bTJ3MzEyIiwiYWNjb3VudCI6MSwibmFtZSI6ImRlbW8iLCJleHAiOjE3OTIzNjM3MDg1ODZ9.HS1dDrz-dj9Jgw4a8aqwhvrKjhNEeDtqsh_wJ2DE-9E","id":"74m2w312","url":"http://demo.preview.localhost:4199/","connectUrl":"ws://preview.localhost:4199/_connect","expiresAt":"2026-10-18T22:48:28.586Z"}

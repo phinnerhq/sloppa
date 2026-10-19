@@ -1,11 +1,11 @@
 HTTP/1.1 200 OK
-accept-ranges: bytes
-content-disposition: inline; filename="hello.txt"; filename*=UTF-8''hello.txt
-content-security-policy: sandbox allow-scripts allow-popups allow-forms allow-downloads; frame-ancestors 'self'
-cache-control: public, max-age=31536000, immutable
-x-content-type-options: nosniff
-access-control-allow-origin: *
-content-type: text/plain
-content-length: 12
+Accept-Ranges: bytes
+Access-Control-Allow-Origin: *
+Cache-Control: public, max-age=31536000, immutable
+Content-Disposition: inline; filename="hello.txt"; filename*=UTF-8''hello.txt
+Content-Length: 12
+Content-Security-Policy: sandbox allow-scripts allow-popups allow-forms allow-downloads; frame-ancestors 'self'
+Content-Type: text/plain
+X-Content-Type-Options: nosniff
 
 hello world

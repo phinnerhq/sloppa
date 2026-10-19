@@ -15,7 +15,7 @@ const (
 	missingID = "00000000-0000-4000-8000-000000000000"
 )
 
-// withHello is a harness whose storage holds the reference run's hello.txt.
+// withHello is a harness whose storage holds the golden responses' hello.txt.
 func withHello(t *testing.T) *harness {
 	h := newHarness(t)
 	hello := fixtureBody[api.Artifact](t, "14-get")
@@ -122,7 +122,7 @@ func TestMoveArtifact(t *testing.T) {
 		return h.req("PATCH", "/api/artifacts/"+id, body).bearer(token)
 	}
 
-	// The TypeScript server refused surrounding space; trimming it is kinder.
+	// Surrounding space is trimmed rather than refused.
 	res := h.send(move(helloID, map[string]string{"collection": "  owner/repo #43 "}))
 	if res.Code != http.StatusOK || decode[api.Artifact](t, res).Collection != "owner/repo #43" {
 		t.Fatalf("move: %d %s", res.Code, res.Body)

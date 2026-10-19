@@ -4,14 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -182,16 +187,55 @@ func loadFixture(t *testing.T, name string) fixture {
 // Headers that differ for reasons that don't matter: framing, and cookies, compared on their own.
 var unchecked = map[string]bool{"Content-Length": true, "Transfer-Encoding": true, "Set-Cookie": true, "Date": true}
 
+// updateResponses rewrites each fixture from the response a test checks against it, so they stay
+// what the server sends: review the diff, then commit it.
+var updateResponses = flag.Bool("update-responses", false, "rewrite testdata/responses from the API")
+
+// volatile is what differs between runs in a response: ids, times, tokens and setup codes, and the
+// session cookie's value and expiry.
+var volatile = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
+	`|\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?Z` +
+	`|sloppa_session=[^;]*` + // before tokens, which it would read as one
+	`|sloppa_[A-Za-z0-9_-]+` +
+	`|/setup/[A-Za-z0-9_-]+` +
+	`|Expires=[^;]*`)
+
+// writeFixture saves res as the fixture name, headers sorted, for -update-responses. A fixture that
+// differs only in what differs between runs is left as it is, so the diff shows what changed.
+func writeFixture(t *testing.T, res *httptest.ResponseRecorder, name string) {
+	t.Helper()
+	var b bytes.Buffer
+	fmt.Fprintf(&b, "HTTP/1.1 %d %s\n", res.Code, http.StatusText(res.Code))
+	for _, key := range slices.Sorted(maps.Keys(res.Header())) {
+		for _, value := range res.Header()[key] {
+			fmt.Fprintf(&b, "%s: %s\n", key, value)
+		}
+	}
+	b.WriteString("\n")
+	if body := bytes.TrimSpace(res.Body.Bytes()); len(body) > 0 {
+		b.Write(body)
+		b.WriteString("\n")
+	}
+	path := filepath.Join("testdata", "responses", name+".http")
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(volatile.ReplaceAll(old, nil), volatile.ReplaceAll(b.Bytes(), nil)) {
+		return
+	}
+	if err := os.WriteFile(path, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // like checks res against the fixture: the same status and headers, and a JSON body of the same
-// shape, or the same JSON when exact. A fixture with no body only checks the status.
+// shape, or the same JSON when exact. A fixture with no body wants none.
 func like(t *testing.T, res *httptest.ResponseRecorder, name string, exact bool) {
 	t.Helper()
+	if *updateResponses {
+		writeFixture(t, res, name)
+		return
+	}
 	f := loadFixture(t, name)
 	if res.Code != f.status {
 		t.Fatalf("%s: status %d, want %d; body %s", name, res.Code, f.status, res.Body)
-	}
-	if len(f.body) == 0 {
-		return
 	}
 	for key, values := range f.header {
 		if unchecked[key] {
@@ -200,6 +244,12 @@ func like(t *testing.T, res *httptest.ResponseRecorder, name string, exact bool)
 		if got := res.Header().Values(key); !reflect.DeepEqual(got, values) {
 			t.Errorf("%s: header %s = %q, want %q", name, key, got, values)
 		}
+	}
+	if len(f.body) == 0 {
+		if body := bytes.TrimSpace(res.Body.Bytes()); len(body) > 0 {
+			t.Errorf("%s: body %q, want none", name, body)
+		}
+		return
 	}
 	var got, want any
 	if err := json.Unmarshal(f.body, &want); err != nil {

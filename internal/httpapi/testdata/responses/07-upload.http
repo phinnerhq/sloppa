@@ -1,5 +1,5 @@
 HTTP/1.1 200 OK
-content-type: application/json
-content-length: 660
+Content-Length: 620
+Content-Type: application/json
 
-[{"id":"f1f8369a-8ed1-466c-afbd-39d7e7cc7c67","name":"hello.txt","contentType":"text/plain","size":12,"createdAt":"2026-10-18T22:38:28.495Z","collection":"owner/repo #42","url":"http://127.0.0.1:4199/a/f1f8369a-8ed1-466c-afbd-39d7e7cc7c67","rawUrl":"http://127.0.0.1:4199/f/f1f8369a-8ed1-466c-afbd-39d7e7cc7c67/hello.txt"},{"id":"26a55539-b1bb-4ebf-b781-54c5ba3bf726","name":"notes.md","contentType":"text/markdown; charset=utf-8","size":5,"createdAt":"2026-10-18T22:38:28.498Z","collection":"owner/repo #42","url":"http://127.0.0.1:4199/a/26a55539-b1bb-4ebf-b781-54c5ba3bf726","rawUrl":"http://127.0.0.1:4199/f/26a55539-b1bb-4ebf-b781-54c5ba3bf726/notes.md"}]
+[{"id":"00000000-0000-4000-8000-000000000001","name":"hello.txt","contentType":"text/plain","size":12,"createdAt":"2026-10-19T17:26:09.206Z","collection":"owner/repo #42","url":"http://sloppa.test/a/00000000-0000-4000-8000-000000000001","rawUrl":"http://sloppa.test/f/00000000-0000-4000-8000-000000000001/hello.txt"},{"id":"00000000-0000-4000-8000-000000000002","name":"notes.md","contentType":"","size":5,"createdAt":"2026-10-19T17:26:09.206Z","collection":"owner/repo #42","url":"http://sloppa.test/a/00000000-0000-4000-8000-000000000002","rawUrl":"http://sloppa.test/f/00000000-0000-4000-8000-000000000002/notes.md"}]

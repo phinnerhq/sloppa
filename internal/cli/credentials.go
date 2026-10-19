@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -26,39 +25,20 @@ func credentialsPath() (string, error) {
 	return filepath.Join(dir, "sloppa", "credentials.json"), nil
 }
 
-// legacyCredentialsPath is where the TypeScript CLI kept them: `$XDG_CONFIG_HOME` or `~/.config`,
-// and `%APPDATA%` on Windows. It differs on macOS, where a login from before is read from here.
-func legacyCredentialsPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" && runtime.GOOS == "windows" {
-		base = os.Getenv("APPDATA")
-	}
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "sloppa", "credentials.json")
-}
-
 func readCredentials() (credentials, bool) {
-	primary, _ := credentialsPath()
-	for _, path := range []string{primary, legacyCredentialsPath()} {
-		if path == "" {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			continue
-		}
-		var c credentials
-		if json.Unmarshal(data, &c) == nil {
-			return c, true
-		}
+	path, err := credentialsPath()
+	if err != nil {
+		return credentials{}, false
 	}
-	return credentials{}, false
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return credentials{}, false
+	}
+	var c credentials
+	if json.Unmarshal(data, &c) != nil {
+		return credentials{}, false
+	}
+	return c, true
 }
 
 // loadCredentials lets SLOPPA_URL and SLOPPA_TOKEN win over the file, each on its own, for a

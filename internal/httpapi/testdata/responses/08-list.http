@@ -1,5 +1,4 @@
 HTTP/1.1 200 OK
-content-type: application/json
-content-length: 450
+Content-Type: application/json
 
 {"items":[{"id":"26a55539-b1bb-4ebf-b781-54c5ba3bf726","name":"notes.md","contentType":"text/markdown; charset=utf-8","size":5,"createdAt":"2026-10-18T22:38:28.498Z","collection":"owner/repo #42","url":"http://127.0.0.1:4199/a/26a55539-b1bb-4ebf-b781-54c5ba3bf726","rawUrl":"http://127.0.0.1:4199/f/26a55539-b1bb-4ebf-b781-54c5ba3bf726/notes.md"}],"nextCursor":"eyJtcyI6MTc5MjM2MzEwODQ5OCwiaWQiOiIyNmE1NTUzOS1iMWJiLTRlYmYtYjc4MS01NGM1YmEzYmY3MjYifQ"}

@@ -9,7 +9,7 @@ import (
 
 var escaper = strings.NewReplacer("&", "&#38;", "<", "&#60;", ">", "&#62;", `"`, "&#34;", "'", "&#39;")
 
-// escapeHTML escapes like the TypeScript server did, so its pages read the same byte for byte.
+// escapeHTML makes text safe in an element or a quoted attribute.
 func escapeHTML(text string) string { return escaper.Replace(text) }
 
 // refusal is one of the proxy's own answers: a small HTML page. Body is HTML: escape anything that
