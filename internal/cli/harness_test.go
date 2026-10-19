@@ -215,13 +215,24 @@ type fakeAPI struct {
 	expiresIn time.Duration
 	// refuseTunnels answers tunnel requests with this status instead, when set.
 	refuseTunnels int
+	// machine is the machine the session names, if any.
+	machine string
+	// setups are what setup links were posted, with the bearer token sent if any.
+	setups []fakeSetup
+}
+
+type fakeSetup struct {
+	code, bearer string
+	facts        api.MachineFacts
 }
 
 func newFakeAPI(t *testing.T) *fakeAPI {
 	f := &fakeAPI{token: "sloppa_test", previews: map[string]*fakePreview{}, expiresIn: time.Hour}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, api.User{Username: "test"})
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		writeJSON(w, 200, api.User{Username: "test", Machine: f.machine})
 	})
 	mux.HandleFunc("POST /api/artifacts", f.upload)
 	mux.HandleFunc("GET /api/artifacts", f.list)
@@ -268,8 +279,13 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 		f.mu.Lock()
 		f.requests = append(f.requests, r.Method+" "+r.URL.Path)
 		f.mu.Unlock()
+		// The code is the credential there.
+		if code, ok := strings.CutPrefix(r.URL.Path, "/setup/"); ok && r.Method == http.MethodPost {
+			f.setup(w, r, code)
+			return
+		}
 		if r.Header.Get("Authorization") != "Bearer "+f.token {
-			writeError(w, api.Unauthorized("Sign in, or pass an agent token"))
+			writeError(w, api.Unauthorized("Sign in, or pass a machine token"))
 			return
 		}
 		if r.Header.Get("User-Agent") != "sloppa/test" {
@@ -280,6 +296,31 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 	}))
 	t.Cleanup(f.Close)
 	return f
+}
+
+// setup redeems any code but "spent", re-pairing machine m1 when its token comes along.
+func (f *fakeAPI) setup(w http.ResponseWriter, r *http.Request, code string) {
+	if code == "spent" {
+		writeError(w, api.SetupLinkGone())
+		return
+	}
+	var facts api.MachineFacts
+	json.NewDecoder(r.Body).Decode(&facts)
+	bearer, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setups = append(f.setups, fakeSetup{code, bearer, facts})
+	result := api.SetupResult{Repaired: bearer == f.token}
+	result.Machine = api.Machine{ID: "m1", Name: facts.Hostname, Hostname: facts.Hostname, OS: facts.OS, Arch: facts.Arch}
+	result.Token = f.token
+	f.machine = facts.Hostname
+	writeJSON(w, 200, result)
+}
+
+func (f *fakeAPI) posted() []fakeSetup {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.setups)
 }
 
 // signIn points the CLI at the fake through the environment.

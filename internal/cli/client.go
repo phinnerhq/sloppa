@@ -14,7 +14,7 @@ import (
 	"github.com/phinnerhq/sloppa/internal/api"
 )
 
-// client is the sloppa server's API, signed in with an agent token.
+// client is the sloppa server's API, signed in with a machine token.
 type client struct {
 	url       string
 	token     string
@@ -63,7 +63,10 @@ func (c *client) send(ctx context.Context, method, path string, query url.Values
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	// Only `sloppa setup` goes without, on a machine that has no token yet.
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", "application/json")
 	if contentType != "" {

@@ -4,5 +4,5 @@
 export const PAGE_SIZE = 60
 export const GROUP_PAGE_SIZE = 24
 
-export const AGENT_NAME_MAX = 100
+export const MACHINE_NAME_MAX = 100
 export const PASSWORD_MIN = 8

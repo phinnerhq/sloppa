@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	alice  = accounts.Account{ID: 1, Username: "alice", CredentialID: "alice-agent", Kind: accounts.KindAgent}
-	alice2 = accounts.Account{ID: 1, Username: "alice", CredentialID: "alice-laptop", Kind: accounts.KindAgent}
-	bob    = accounts.Account{ID: 2, Username: "bob", CredentialID: "bob-agent", Kind: accounts.KindAgent}
+	alice  = accounts.Account{ID: 1, Username: "alice", CredentialID: "alice-desktop", Kind: accounts.KindMachine}
+	alice2 = accounts.Account{ID: 1, Username: "alice", CredentialID: "alice-laptop", Kind: accounts.KindMachine}
+	bob    = accounts.Account{ID: 2, Username: "bob", CredentialID: "bob-laptop", Kind: accounts.KindMachine}
 )
 
 func TestMain(m *testing.M) {
@@ -35,7 +35,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// stateDB is a migrated state database with alice (two agent tokens) and bob (one).
+// stateDB is a migrated state database with alice (two machine tokens) and bob (one).
 func stateDB(t *testing.T) *sql.DB {
 	t.Helper()
 	d, err := db.OpenMemory()
@@ -49,7 +49,7 @@ func stateDB(t *testing.T) *sql.DB {
 	for _, q := range []string{
 		`INSERT INTO users (id, username, password_hash, created_ms) VALUES (1, 'alice', 'x', 0), (2, 'bob', 'x', 0)`,
 		`INSERT INTO credentials (id, hash, kind, user_id, created_ms) VALUES
-			('alice-agent', 'h1', 'agent', 1, 0), ('alice-laptop', 'h2', 'agent', 1, 0), ('bob-agent', 'h3', 'agent', 2, 0)`,
+			('alice-desktop', 'h1', 'machine', 1, 0), ('alice-laptop', 'h2', 'machine', 1, 0), ('bob-laptop', 'h3', 'machine', 2, 0)`,
 	} {
 		if _, err := d.Exec(q); err != nil {
 			t.Fatal(err)

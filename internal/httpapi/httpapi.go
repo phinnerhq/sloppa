@@ -41,7 +41,7 @@ func New(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	s.api = humago.New(mux, humaConfig(s.cookie))
 	s.registerSession()
-	s.registerAgents()
+	s.registerMachines()
 	s.registerArtifacts()
 	s.registerPreviews()
 	s.registerUpload(mux)

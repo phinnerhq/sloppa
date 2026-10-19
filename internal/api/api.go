@@ -16,8 +16,8 @@ const (
 	// read back as.
 	UnknownCollection = "unknown"
 
-	AgentNameMax = 100
-	PasswordMin  = 8
+	MachineNameMax = 100
+	PasswordMin    = 8
 
 	MaxUploadBytes = 100 << 20
 
@@ -30,8 +30,8 @@ const (
 	PreviewTTLMin     = time.Minute
 
 	SessionCookie = "sloppa_session"
-	// AgentTokenPrefix lets secret scanners (and people) tell what leaked.
-	AgentTokenPrefix = "sloppa_"
+	// TokenPrefix starts machine tokens, so secret scanners (and people) can tell what leaked.
+	TokenPrefix = "sloppa_"
 )
 
 // Time is how the API writes instants: RFC 3339 in UTC, to the millisecond.
@@ -94,6 +94,8 @@ type MoveArtifact struct {
 
 type User struct {
 	Username string `json:"username"`
+	// Machine is the name of the machine whose token signed in, when one did.
+	Machine string `json:"machine,omitempty"`
 }
 
 type Login struct {
@@ -106,29 +108,51 @@ type ChangePassword struct {
 	Next    string `json:"next"`
 }
 
-// Agent is a token handed to one agent, through a setup link or made by hand.
-type Agent struct {
+// Machine is a computer the CLI is set up on, signed in with a token of its own. Hostname, OS, Arch
+// and CLIVersion are what the CLI said when it was last set up there; machines made by hand don't
+// have them.
+type Machine struct {
 	ID string `json:"id"`
-	// Name is what the agent called itself, e.g. "Claude Code on my laptop".
-	Name       string     `json:"name"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	// Name is the hostname, unless someone renamed it.
+	Name       string    `json:"name"`
+	Hostname   string    `json:"hostname,omitempty"`
+	OS         string    `json:"os,omitempty"`
+	Arch       string    `json:"arch,omitempty"`
+	CLIVersion string    `json:"cliVersion,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	// LastSeenAt is when its token was last used.
+	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
 }
 
-type AgentName struct {
+type MachineName struct {
 	Name string `json:"name"`
 }
 
-// CreatedAgent is shown once: only a hash of the token is kept.
-type CreatedAgent struct {
-	Agent Agent  `json:"agent"`
-	Token string `json:"token"`
+// CreatedMachine is shown once: only a hash of the token is kept.
+type CreatedMachine struct {
+	Machine Machine `json:"machine"`
+	Token   string  `json:"token"`
+}
+
+// MachineFacts is what `sloppa setup` says about the machine it runs on, posted to a setup link.
+type MachineFacts struct {
+	Hostname   string `json:"hostname,omitempty"`
+	OS         string `json:"os,omitempty"`
+	Arch       string `json:"arch,omitempty"`
+	CLIVersion string `json:"cliVersion,omitempty"`
+}
+
+// SetupResult is a setup link redeemed: a new machine, or with Repaired, the one whose token came
+// with the request, under a new token.
+type SetupResult struct {
+	CreatedMachine
+	Repaired bool `json:"repaired"`
 }
 
 type SetupLink struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
-	// Prompt is pasted into an agent, which sets itself up from the link.
+	// Prompt is pasted into an agent, which sets its machine up from the link.
 	Prompt    string    `json:"prompt"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
@@ -158,7 +182,7 @@ type Preview struct {
 }
 
 // StartPreview is what `sloppa preview run` asks for. The preview is a row on the server from then
-// on: the tunnel connects to it with the same agent token, as often as it needs to.
+// on: the tunnel connects to it with the same token, as often as it needs to.
 type StartPreview struct {
 	Name string `json:"name,omitempty"`
 	// Password is asked for by the proxy as Basic auth, any user name.
@@ -174,7 +198,7 @@ type StartPreview struct {
 type StartedPreview struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
-	// TunnelURL is the WebSocket the CLI connects to, with its agent token as a bearer.
+	// TunnelURL is the WebSocket the CLI connects to, with its token as a bearer.
 	TunnelURL string    `json:"tunnelUrl"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }
@@ -189,7 +213,8 @@ var previewID = regexp.MustCompile(`^[a-z0-9]{8}$`)
 
 func IsPreviewID(id string) bool { return previewID.MatchString(id) }
 
-// SetupPath is where agents redeem a setup link, outside the typed API since they read it as text.
+// SetupPath is where `sloppa setup` redeems a setup link, outside the typed API: the code in the path
+// is the credential, kept out of the logs.
 func SetupPath(code string) string { return "/setup/" + code }
 
 // RawPath is the raw file route, served outside the typed API so headers can follow the file.

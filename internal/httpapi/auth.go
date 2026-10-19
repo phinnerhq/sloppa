@@ -23,11 +23,11 @@ type access int
 
 const (
 	public access = iota
-	// signedIn takes a browser's session cookie or an agent's bearer token. Everything needs one
+	// signedIn takes a browser's session cookie or a machine's bearer token. Everything needs one
 	// except fetching a single artifact by id: its random UUID is what makes a shared link
 	// unguessable, so listing (which would hand out every id) stays behind sign-in.
 	signedIn
-	// browser takes the session cookie only. Managing agents takes a person: a leaked agent token
+	// browser takes the session cookie only. Managing machines takes a person: a leaked machine token
 	// mustn't be able to mint itself replacements before it's revoked.
 	browser
 )
@@ -46,12 +46,12 @@ func (a access) unauthorized() *api.Error {
 	if a == browser {
 		return api.Unauthorized("Sign in from a browser for this")
 	}
-	return api.Unauthorized("Sign in, or pass an agent token")
+	return api.Unauthorized("Sign in, or pass a machine token")
 }
 
 type sessionKey struct{}
 
-// sessionOf is the session cookie a request was authenticated with, or "" for an agent's.
+// sessionOf is the session cookie a request was authenticated with, or "" for a machine token.
 func sessionOf(ctx context.Context) string {
 	s, _ := ctx.Value(sessionKey{}).(string)
 	return s
@@ -86,7 +86,7 @@ func (s *server) authenticate(r *http.Request, need access) (context.Context, er
 	}
 	if need == signedIn {
 		if token, ok := bearerToken(r); ok {
-			a, ok, err := s.accounts.Authenticate(ctx, accounts.KindAgent, token)
+			a, ok, err := s.accounts.Authenticate(ctx, accounts.KindMachine, token)
 			if err != nil {
 				return nil, err
 			}

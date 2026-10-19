@@ -110,7 +110,7 @@ func TestResetsThePasswordSigningBrowsersOutWhenTheBootstrapOneChanges(t *testin
 	if err := s.ChangePassword(t.Context(), here.account, here.token, "first-pass", "second-pass"); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := s.CreateAgent(t.Context(), here.account, "kept")
+	machine, err := s.CreateMachine(t.Context(), here.account, "kept")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +125,8 @@ func TestResetsThePasswordSigningBrowsersOutWhenTheBootstrapOneChanges(t *testin
 	if isSignedIn(t, s, here.token) {
 		t.Error("the browser stayed signed in")
 	}
-	if _, ok, _ := s.Authenticate(t.Context(), accounts.KindAgent, agent.Token); !ok {
-		t.Error("the reset revoked agents too")
+	if _, ok, _ := s.Authenticate(t.Context(), accounts.KindMachine, machine.Token); !ok {
+		t.Error("the reset revoked machines too")
 	}
 }
 
@@ -217,8 +217,8 @@ func TestLoginIgnoresCaseAndSpaceInTheUsername(t *testing.T) {
 	if err != nil || !ok || got != a {
 		t.Errorf("Authenticate = %+v, %v, %v; want %+v", got, ok, err, a)
 	}
-	if _, ok, _ := s.Authenticate(t.Context(), accounts.KindAgent, token); ok {
-		t.Error("a session token passed as an agent's")
+	if _, ok, _ := s.Authenticate(t.Context(), accounts.KindMachine, token); ok {
+		t.Error("a session token passed as a machine's")
 	}
 }
 
@@ -374,7 +374,7 @@ func TestLogout(t *testing.T) {
 	}
 }
 
-func TestAgents(t *testing.T) {
+func TestMachines(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		d := stateDB(t)
 		defer d.Close()
@@ -382,61 +382,81 @@ func TestAgents(t *testing.T) {
 		ctx := context.Background()
 		me := mustSignIn(t, s, "first-pass").account
 
-		if agents, err := s.Agents(ctx, me); err != nil || agents == nil || len(agents) != 0 {
-			t.Fatalf("no agents yet: %#v, %v", agents, err)
+		if machines, err := s.Machines(ctx, me); err != nil || machines == nil || len(machines) != 0 {
+			t.Fatalf("no machines yet: %#v, %v", machines, err)
 		}
-		first, err := s.CreateAgent(ctx, me, "first")
+		first, err := s.CreateMachine(ctx, me, "first")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(first.Token, api.AgentTokenPrefix) || first.Agent.Name != "first" || first.Agent.LastUsedAt != nil {
+		if !strings.HasPrefix(first.Token, api.TokenPrefix) || first.Machine.Name != "first" || first.Machine.LastSeenAt != nil ||
+			first.Machine.Hostname != "" || !first.Machine.CreatedAt.Equal(api.Time(time.Now())) {
 			t.Fatalf("created %+v", first)
 		}
 		time.Sleep(time.Second)
-		second, _ := s.CreateAgent(ctx, me, "second")
+		second, _ := s.CreateMachine(ctx, me, "second")
 
 		time.Sleep(time.Second)
-		a, ok, err := s.Authenticate(ctx, accounts.KindAgent, first.Token)
+		a, ok, err := s.Authenticate(ctx, accounts.KindMachine, first.Token)
 		if err != nil || !ok {
-			t.Fatalf("agent token refused: %v", err)
+			t.Fatalf("machine token refused: %v", err)
 		}
-		if a.Kind != accounts.KindAgent || a.CredentialID != first.Agent.ID || a.ID != me.ID || a.Username != "admin" {
-			t.Fatalf("agent account = %+v", a)
+		if a.Kind != accounts.KindMachine || a.CredentialID == "" || a.MachineID != first.Machine.ID || a.MachineName != "first" ||
+			a.ID != me.ID || a.Username != "admin" {
+			t.Fatalf("machine account = %+v", a)
 		}
 		used := api.Time(time.Now())
 
-		agents, _ := s.Agents(ctx, me)
-		if len(agents) != 2 || agents[0].ID != second.Agent.ID || agents[1].ID != first.Agent.ID {
-			t.Fatalf("agents, newest first: %+v", agents)
+		machines, _ := s.Machines(ctx, me)
+		if len(machines) != 2 || machines[0].ID != second.Machine.ID || machines[1].ID != first.Machine.ID {
+			t.Fatalf("machines, newest first: %+v", machines)
 		}
-		if agents[1].LastUsedAt == nil || !agents[1].LastUsedAt.Equal(used) || agents[0].LastUsedAt != nil {
-			t.Fatalf("last used: %+v", agents)
+		if machines[1].LastSeenAt == nil || !machines[1].LastSeenAt.Equal(used) || machines[0].LastSeenAt != nil {
+			t.Fatalf("last seen: %+v", machines)
 		}
-		if !agents[1].CreatedAt.Equal(first.Agent.CreatedAt) {
-			t.Fatalf("created at %v, listed as %v", first.Agent.CreatedAt, agents[1].CreatedAt)
+		if !machines[1].CreatedAt.Equal(first.Machine.CreatedAt) {
+			t.Fatalf("created at %v, listed as %v", first.Machine.CreatedAt, machines[1].CreatedAt)
 		}
 
-		if err := s.RenameAgent(ctx, me, first.Agent.ID, "renamed"); err != nil {
+		if err := s.RenameMachine(ctx, me, first.Machine.ID, "renamed"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.RevokeAgent(ctx, me, second.Agent.ID); err != nil {
+		if err := s.RevokeMachine(ctx, me, second.Machine.ID); err != nil {
 			t.Fatal(err)
 		}
-		agents, _ = s.Agents(ctx, me)
-		if len(agents) != 1 || agents[0].Name != "renamed" {
-			t.Fatalf("after rename and revoke: %+v", agents)
+		machines, _ = s.Machines(ctx, me)
+		if len(machines) != 1 || machines[0].Name != "renamed" {
+			t.Fatalf("after rename and revoke: %+v", machines)
 		}
-		if _, ok, _ := s.Authenticate(ctx, accounts.KindAgent, second.Token); ok {
-			t.Fatal("a revoked token still works")
+		if _, ok, _ := s.Authenticate(ctx, accounts.KindMachine, second.Token); ok {
+			t.Fatal("a revoked machine's token still works")
 		}
 		// Someone else's id changes nothing.
 		other := accounts.Account{ID: me.ID + 1}
-		s.RevokeAgent(ctx, other, first.Agent.ID)
-		s.RenameAgent(ctx, other, first.Agent.ID, "hijacked")
-		if agents, _ = s.Agents(ctx, me); len(agents) != 1 || agents[0].Name != "renamed" {
-			t.Fatalf("another account changed an agent: %+v", agents)
+		s.RevokeMachine(ctx, other, first.Machine.ID)
+		s.RenameMachine(ctx, other, first.Machine.ID, "hijacked")
+		if machines, _ = s.Machines(ctx, me); len(machines) != 1 || machines[0].Name != "renamed" {
+			t.Fatalf("another account changed a machine: %+v", machines)
 		}
 	})
+}
+
+// startPreview is a preview row started with a's token, as the preview service would add it.
+func startPreview(t *testing.T, d *sql.DB, a accounts.Account, id string) {
+	t.Helper()
+	if _, err := d.Exec(`INSERT INTO previews (id, label, user_id, credential_id, port, created_ms, expires_ms)
+		VALUES (?, ?, ?, ?, 3000, 0, ?)`, id, id, a.ID, a.CredentialID, time.Now().Add(time.Hour).UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func previewCount(t *testing.T, d *sql.DB) int {
+	t.Helper()
+	var n int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM previews`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestSetupLinks(t *testing.T) {
@@ -457,43 +477,124 @@ func TestSetupLinks(t *testing.T) {
 		if got, ok, err := s.SetupExpiry(ctx, code); err != nil || !ok || !got.Equal(expires) {
 			t.Fatalf("SetupExpiry = %v, %v, %v", got, ok, err)
 		}
-		// A setup code is no session or agent token.
-		for _, kind := range []string{accounts.KindSession, accounts.KindAgent, accounts.KindSetup} {
+		// A setup code is no session or machine token.
+		for _, kind := range []string{accounts.KindSession, accounts.KindMachine, accounts.KindSetup} {
 			if _, ok, _ := s.Authenticate(ctx, kind, code); ok {
 				t.Fatalf("a setup code authenticated as %s", kind)
 			}
 		}
 
-		first, ok, err := s.RedeemSetup(ctx, code, "Codex on laptop")
-		if err != nil || !ok || !strings.HasPrefix(first, api.AgentTokenPrefix) {
-			t.Fatalf("redeem: %q %v %v", first, ok, err)
+		facts := api.MachineFacts{Hostname: "laptop", OS: "linux", Arch: "amd64", CLIVersion: "1.0.0"}
+		first, ok, err := s.RedeemSetup(ctx, code, "", facts)
+		if err != nil || !ok || !strings.HasPrefix(first.Token, api.TokenPrefix) || first.Repaired {
+			t.Fatalf("redeem: %+v %v %v", first, ok, err)
 		}
-		other, _, _ := s.RedeemSetup(ctx, code, "Claude Code on laptop")
-		// Setting the same app up again replaces its token.
-		again, _, _ := s.RedeemSetup(ctx, code, "Codex on laptop")
-		if _, ok, _ := s.Authenticate(ctx, accounts.KindAgent, first); ok {
-			t.Error("the replaced token still works")
+		m := first.Machine
+		if m.Name != "laptop" || m.Hostname != "laptop" || m.OS != "linux" || m.Arch != "amd64" || m.CLIVersion != "1.0.0" ||
+			m.LastSeenAt == nil || !m.LastSeenAt.Equal(api.Time(time.Now())) {
+			t.Fatalf("redeemed machine %+v", m)
 		}
-		for _, token := range []string{other, again} {
-			if _, ok, _ := s.Authenticate(ctx, accounts.KindAgent, token); !ok {
-				t.Error("a redeemed token doesn't work")
-			}
+		// Spent: not even its own machine gets it again.
+		if _, ok, _ := s.RedeemSetup(ctx, code, first.Token, facts); ok {
+			t.Fatal("redeemed a link twice")
 		}
-		if agents, _ := s.Agents(ctx, me); len(agents) != 2 {
-			t.Errorf("agents: %+v", agents)
+		if _, ok, _ := s.SetupExpiry(ctx, code); ok {
+			t.Error("a spent link has an expiry")
 		}
 
+		_, code, _, _ = s.CreateSetup(ctx, me)
 		time.Sleep(accounts.SetupTTL)
-		if _, ok, _ := s.RedeemSetup(ctx, code, "late"); ok {
+		if _, ok, _ := s.RedeemSetup(ctx, code, "", facts); ok {
 			t.Error("redeemed an expired link")
 		}
 		if _, ok, _ := s.SetupExpiry(ctx, code); ok {
 			t.Error("an expired link has an expiry")
 		}
-		if _, ok, _ := s.Authenticate(ctx, accounts.KindAgent, again); !ok {
-			t.Error("agent tokens expired with their link")
+		if _, ok, _ := s.Authenticate(ctx, accounts.KindMachine, first.Token); !ok {
+			t.Error("machine tokens expired with their link")
 		}
 	})
+}
+
+func TestSetupRepairsOnlyTheUsersOwnMachines(t *testing.T) {
+	d := stateDB(t)
+	defer d.Close()
+	s := boot(t, d, "first-pass")
+	ctx := t.Context()
+	me := mustSignIn(t, s, "first-pass").account
+	redeem := func(owner accounts.Account, current string, facts api.MachineFacts) api.SetupResult {
+		t.Helper()
+		_, code, _, _ := s.CreateSetup(ctx, owner)
+		got, ok, err := s.RedeemSetup(ctx, code, current, facts)
+		if err != nil || !ok {
+			t.Fatalf("redeem: %v %v", ok, err)
+		}
+		return got
+	}
+
+	first := redeem(me, "", api.MachineFacts{Hostname: "laptop", OS: "linux", Arch: "amd64", CLIVersion: "1.0.0"})
+	s.RenameMachine(ctx, me, first.Machine.ID, "work laptop")
+	signedIn, _, _ := s.Authenticate(ctx, accounts.KindMachine, first.Token)
+	startPreview(t, d, signedIn, "aaaaaaaa")
+
+	again := redeem(me, first.Token, api.MachineFacts{Hostname: "laptop", OS: "linux", Arch: "arm64", CLIVersion: "2.0.0"})
+	if !again.Repaired || again.Machine.ID != first.Machine.ID || again.Machine.Name != "work laptop" ||
+		again.Machine.Arch != "arm64" || again.Machine.CLIVersion != "2.0.0" || !again.Machine.CreatedAt.Equal(first.Machine.CreatedAt) {
+		t.Fatalf("re-paired %+v", again)
+	}
+	if _, ok, _ := s.Authenticate(ctx, accounts.KindMachine, first.Token); ok {
+		t.Error("the old token still works")
+	}
+	if _, ok, _ := s.Authenticate(ctx, accounts.KindMachine, again.Token); !ok {
+		t.Error("the new token doesn't work")
+	}
+	// The CLI running it held the old token: it's over, as if the token had been revoked.
+	if n := previewCount(t, d); n != 0 {
+		t.Errorf("%d previews left from the old token", n)
+	}
+
+	// Another user's link can't take my machine, even with its token.
+	if _, err := d.Exec(`INSERT INTO users (username, password_hash, created_ms) VALUES ('bob', 'x', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	bob := accounts.Account{ID: me.ID + 1}
+	theirs := redeem(bob, again.Token, api.MachineFacts{Hostname: "laptop"})
+	if theirs.Repaired || theirs.Machine.ID == first.Machine.ID {
+		t.Fatalf("bob's link re-paired my machine: %+v", theirs)
+	}
+	if _, ok, _ := s.Authenticate(ctx, accounts.KindMachine, again.Token); !ok {
+		t.Error("bob's link revoked my machine's token")
+	}
+	if machines, _ := s.Machines(ctx, me); len(machines) != 1 {
+		t.Errorf("my machines: %+v", machines)
+	}
+
+	// Nothing known about the machine still makes one.
+	if blank := redeem(me, "", api.MachineFacts{}); blank.Machine.Name != "machine" || blank.Machine.Hostname != "" {
+		t.Errorf("a machine nothing is known about: %+v", blank)
+	}
+}
+
+func TestRevokingAMachineEndsItsPreviews(t *testing.T) {
+	d := stateDB(t)
+	defer d.Close()
+	s := boot(t, d, "first-pass")
+	ctx := t.Context()
+	me := mustSignIn(t, s, "first-pass").account
+	created, _ := s.CreateMachine(ctx, me, "ci")
+	signedIn, _, _ := s.Authenticate(ctx, accounts.KindMachine, created.Token)
+	startPreview(t, d, signedIn, "bbbbbbbb")
+	if err := s.RevokeMachine(ctx, me, created.Machine.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := previewCount(t, d); n != 0 {
+		t.Errorf("%d previews outlived their machine", n)
+	}
+	var tokens int
+	d.QueryRow(`SELECT COUNT(*) FROM credentials WHERE kind = 'machine'`).Scan(&tokens)
+	if tokens != 0 {
+		t.Errorf("%d tokens outlived their machine", tokens)
+	}
 }
 
 func TestRevokeSetup(t *testing.T) {
@@ -510,7 +611,7 @@ func TestRevokeSetup(t *testing.T) {
 	if revoked, _ := s.RevokeSetup(ctx, code); revoked {
 		t.Fatal("revoked twice")
 	}
-	if _, ok, _ := s.RedeemSetup(ctx, code, "x"); ok {
+	if _, ok, _ := s.RedeemSetup(ctx, code, "", api.MachineFacts{}); ok {
 		t.Fatal("redeemed a revoked link")
 	}
 
@@ -532,7 +633,7 @@ func TestOnlyHashesAreStored(t *testing.T) {
 	defer d.Close()
 	s := boot(t, d, "first-pass")
 	here := mustSignIn(t, s, "first-pass")
-	agent, _ := s.CreateAgent(t.Context(), here.account, "a")
+	machine, _ := s.CreateMachine(t.Context(), here.account, "a")
 	rows, err := d.Query(`SELECT hash FROM credentials`)
 	if err != nil {
 		t.Fatal(err)
@@ -541,7 +642,7 @@ func TestOnlyHashesAreStored(t *testing.T) {
 	for rows.Next() {
 		var hash string
 		rows.Scan(&hash)
-		if hash == here.token || hash == agent.Token || len(hash) != 64 {
+		if hash == here.token || hash == machine.Token || len(hash) != 64 {
 			t.Fatalf("stored %q", hash)
 		}
 	}

@@ -145,12 +145,12 @@ func (h *harness) login() string {
 	return ""
 }
 
-// agentToken is a fresh agent token of admin's.
-func (h *harness) agentToken() string {
+// machineToken is the token of a fresh machine of admin's.
+func (h *harness) machineToken() string {
 	h.t.Helper()
-	res := h.send(h.req("POST", "/api/agents", map[string]string{"name": "test agent"}).cookie(h.login()))
+	res := h.send(h.req("POST", "/api/machines", map[string]string{"name": "test machine"}).cookie(h.login()))
 	if res.Code != http.StatusOK {
-		h.t.Fatalf("create agent: %d %s", res.Code, res.Body)
+		h.t.Fatalf("create a machine: %d %s", res.Code, res.Body)
 	}
 	var created struct{ Token string }
 	json.Unmarshal(res.Body.Bytes(), &created)

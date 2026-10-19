@@ -7,7 +7,7 @@ import { queryClient } from "./api.ts"
 import { Account } from "./components/Account.tsx"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
-import { ConnectAgent } from "./components/Connect.tsx"
+import { ConnectMachine } from "./components/Connect.tsx"
 import { Credits } from "./components/Credits.tsx"
 import { useSignedIn } from "./components/Login.tsx"
 import { Previews } from "./components/Previews.tsx"
@@ -21,7 +21,7 @@ const Session = () => {
   return (
     <>
       <Previews />
-      <ConnectAgent />
+      <ConnectMachine />
       <Account />
     </>
   )

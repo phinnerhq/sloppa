@@ -16,7 +16,7 @@ import (
 
 func TestPreviews(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 
 	like(t, h.send(h.req("GET", "/api/previews", nil).bearer(token)), "23-previews", true)
 
@@ -25,7 +25,7 @@ func TestPreviews(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("start: %d %s", res.Code, res.Body)
 	}
-	// Deliberately unlike 24-preview-start: no ticket, the tunnel connects with the agent token.
+	// Deliberately unlike 24-preview-start: no ticket, the tunnel connects with the machine token.
 	started := decode[map[string]any](t, res)
 	for _, key := range []string{"id", "url", "tunnelUrl", "expiresAt"} {
 		if _, ok := started[key]; !ok {
@@ -52,7 +52,7 @@ func TestPreviews(t *testing.T) {
 
 func TestStartPreviewIsValidated(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	for _, body := range []map[string]any{
 		{"name": "Bad Name!", "port": 3000},
 		{"name": "-demo", "port": 3000},
@@ -88,9 +88,9 @@ func TestStartPreviewBoundsMatchTheAPI(t *testing.T) {
 			t.Errorf("the name pattern says %v for %q, api.IsPreviewName %v", matched, sample, !matched)
 		}
 	}
-	agent, _ := reflect.TypeFor[agentName]().FieldByName("Name")
-	if agent.Tag.Get("maxLength") != strconv.Itoa(api.AgentNameMax) {
-		t.Errorf("agent name bound %q", agent.Tag)
+	machine, _ := reflect.TypeFor[machineName]().FieldByName("Name")
+	if machine.Tag.Get("maxLength") != strconv.Itoa(api.MachineNameMax) {
+		t.Errorf("machine name bound %q", machine.Tag)
 	}
 	move, _ := reflect.TypeFor[moveInput]().FieldByName("Body")
 	collection, _ := move.Type.FieldByName("Collection")
@@ -106,13 +106,13 @@ func TestStartPreviewBoundsMatchTheAPI(t *testing.T) {
 func TestTunnel(t *testing.T) {
 	h := newHarness(t)
 	like(t, h.do("GET", "/api/previews/74m2w312/tunnel", nil), "01-session-unauth", true)
-	if res := h.send(h.req("GET", "/api/previews/74m2w312/tunnel", nil).bearer(h.agentToken())); res.Code != http.StatusSwitchingProtocols {
+	if res := h.send(h.req("GET", "/api/previews/74m2w312/tunnel", nil).bearer(h.machineToken())); res.Code != http.StatusSwitchingProtocols {
 		t.Fatalf("tunnel: %d %s", res.Code, res.Body)
 	}
 	if res := h.send(h.req("GET", "/api/previews/74m2w312/tunnel", nil).cookie(h.login())); res.Code != http.StatusSwitchingProtocols {
 		t.Fatalf("tunnel: %d %s", res.Code, res.Body)
 	}
-	want := []string{"74m2w312 as admin with agent", "74m2w312 as admin with session"}
+	want := []string{"74m2w312 as admin with machine", "74m2w312 as admin with session"}
 	if !reflect.DeepEqual(h.previews.tunnels, want) {
 		t.Errorf("tunnels %q, want %q", h.previews.tunnels, want)
 	}
@@ -124,7 +124,7 @@ func TestPreviewHostsGoToTheProxy(t *testing.T) {
 	for _, r := range []request{
 		h.req("GET", "/", nil),
 		h.req("GET", "/api/session", nil).cookie(session),
-		h.req("POST", "/api/agents", map[string]string{"name": "x"}).cookie(session).header("Sec-Fetch-Site", "cross-site"),
+		h.req("POST", "/api/machines", map[string]string{"name": "x"}).cookie(session).header("Sec-Fetch-Site", "cross-site"),
 		h.req("GET", "/setup/abc", nil),
 	} {
 		r.Host = "demo.preview.test"
@@ -169,7 +169,7 @@ func (p *wsPreviews) Tunnel(w http.ResponseWriter, r *http.Request, id string) {
 
 func TestTunnelUpgradesThroughTheMiddleware(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	previews := &wsPreviews{}
 	srv := httptest.NewServer(New(Deps{Config: h.cfg, Accounts: h.accounts, Artifacts: h.artifacts, Previews: previews}))
 	defer srv.Close()

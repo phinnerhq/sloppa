@@ -1,5 +1,0 @@
-HTTP/1.1 200 OK
-content-type: application/json
-content-length: 175
-
-{"agent":{"id":"3cebefea-1002-4313-9f98-2f8ff354fd3b","name":"test agent","createdAt":"2026-10-18T22:38:28.480Z"},"token":"sloppa_Y7iFpR1wwD1pEh0VgksYtuGFZLBWDqTwbY7D-gt_eJE"}

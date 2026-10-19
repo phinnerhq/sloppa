@@ -25,7 +25,7 @@ func withHello(t *testing.T) *harness {
 
 func TestListings(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	get := func(path string) request { return h.req("GET", path, nil).bearer(token) }
 
 	h.artifacts.page = fixtureBody[api.ArtifactPage](t, "08-list")
@@ -117,7 +117,7 @@ func TestGetArtifact(t *testing.T) {
 
 func TestMoveArtifact(t *testing.T) {
 	h := withHello(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	move := func(id string, body any) request {
 		return h.req("PATCH", "/api/artifacts/"+id, body).bearer(token)
 	}
@@ -152,7 +152,7 @@ func TestMoveArtifact(t *testing.T) {
 
 func TestDeleteArtifact(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	h.artifacts.add(api.Artifact{ID: helloID, Name: "hello.txt"}, "hello")
 	res := h.send(h.req("DELETE", "/api/artifacts/"+helloID, nil).bearer(token))
 	like(t, res, "26-delete", false)

@@ -6,15 +6,17 @@ import "context"
 type Account struct {
 	ID       int64
 	Username string
-	// CredentialID is the session or agent token's row in `credentials`.
+	// CredentialID is the session or machine token's row in `credentials`.
 	CredentialID string
-	// Kind is KindSession or KindAgent.
+	// Kind is KindSession or KindMachine.
 	Kind string
+	// MachineID and MachineName are the machine signed in with its token, for KindMachine.
+	MachineID, MachineName string
 }
 
 const (
 	KindSession = "session"
-	KindAgent   = "agent"
+	KindMachine = "machine"
 	KindSetup   = "setup"
 )
 

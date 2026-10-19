@@ -7,7 +7,7 @@ import { formatAgo, formatSize } from "../format.ts"
 import { onLinkClick, returnTo, useQueryParam } from "../router.ts"
 import { CollectionTitle, Inventory, InventorySkeleton, ItemCount, Paged, SlotsSkeleton } from "./Inventory.tsx"
 import { Login } from "./Login.tsx"
-import { AgentSetup } from "./Connect.tsx"
+import { MachineSetup } from "./Connect.tsx"
 import { Mosaic } from "./Mosaic.tsx"
 import { SearchBar } from "./SearchBar.tsx"
 import { ButtonLink, Floppa, Notice } from "./ui.tsx"
@@ -79,9 +79,9 @@ const StatsRow = ({ stats }: { stats: Stats | null }) => (
 
 const NoArtifacts = () => (
   <Notice title="no artifacts yet" mood="loaf">
-    <p>set an agent up with the sloppa CLI, then ask it to attach screenshots to its PRs:</p>
+    <p>set a machine up with the sloppa CLI, then ask its agent to attach screenshots to its PRs:</p>
     <div className="mx-auto mt-4 max-w-md">
-      <AgentSetup />
+      <MachineSetup />
     </div>
   </Notice>
 )

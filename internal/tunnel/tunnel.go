@@ -1,6 +1,6 @@
 // Package tunnel carries a preview's TCP connections between the server and `sloppa preview run`.
 //
-// The CLI opens one WebSocket to the server, authenticated with its agent token, and yamux runs over
+// The CLI opens one WebSocket to the server, authenticated with its machine token, and yamux runs over
 // it. For each browser connection the server opens a stream; the CLI connects it to the dev server
 // and answers with one status byte, then both sides copy bytes with half-close, so HTTP keep-alive,
 // upgrades (HMR) and streaming all work as they would on a socket. yamux's flow control keeps a slow

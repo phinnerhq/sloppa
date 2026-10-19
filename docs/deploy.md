@@ -8,7 +8,7 @@ Build the [Dockerfile](../Dockerfile) and keep `/data` on a volume. The app and 
 - `BOOTSTRAP_USERNAME` and `BOOTSTRAP_PASSWORD` for the first account. Remove them after the first start and change the password from the account menu; setting a new one later resets it.
 - `S3_*` if artifacts live in a bucket
 
-See [.env.example](../.env.example) for the rest. Point `DATA_DIR` at the TypeScript build's and it carries over: accounts, passwords and agent tokens keep working, and the index rebuilds itself from storage on the first start. Preview tickets and `PREVIEW_SECRET` are gone; CLIs need the Go build to share previews.
+See [.env.example](../.env.example) for the rest. Point `DATA_DIR` at the TypeScript build's and it carries over: accounts and passwords keep working, and each agent token becomes a machine that stays signed in, and the index rebuilds itself from storage on the first start. Preview tickets and `PREVIEW_SECRET` are gone; CLIs need the Go build to share previews.
 
 ## Configure Traefik
 
@@ -108,8 +108,9 @@ server {
 ## Safety notes
 
 - Anyone holding a shared artifact link can read it.
+- Setup links work once, for 30 minutes. Redeeming one adds a machine; only a request that also carries a machine's own token re-pairs that machine, so a leaked link can't take over an existing one. Managing machines and setup links takes a browser session, never a machine token.
 - Back up `DATA_DIR/accounts.sqlite`; it holds accounts and credentials. Without S3, back up the artifact files in `DATA_DIR` too.
 - Keep the app and previews on different registrable domains so previews remain cross-site to the app. The proxy removes cookie domains other than the preview's own host.
 - With an `https` `PUBLIC_URL` the session cookie is `__Host-sloppa_session`, which a preview on a sibling subdomain can't set or shadow; browsers signed in before this sign in again once. Over plain HTTP it's `sloppa_session`, and a sibling subdomain can set one for the parent domain: a browser sending two is treated as signed out.
 - Previews go only through CLI tunnels. Request headers cannot select another upstream, and the CLI connects only to `127.0.0.1` or `::1`.
-- Previews are rows in `accounts.sqlite`, reached only by the agent token that started them. Revoking that token, stopping the preview or its expiry ends it, and a restart keeps it: CLIs reconnect to the same URLs.
+- Previews are rows in `accounts.sqlite`, reached only by the machine token that started them. Revoking that machine, re-pairing it with `sloppa setup`, stopping the preview or its expiry ends it, and a restart keeps it: CLIs reconnect to the same URLs.

@@ -28,9 +28,10 @@ After changing the API, `pnpm gen` rewrites `openapi.json` from the server, then
 
 Put `dist/sloppa` on your `PATH`, or `go install github.com/phinnerhq/sloppa/cmd/sloppa@latest` (without the dashboard, which only `serve` needs).
 
-The dashboard's robot menu gives a setup prompt to paste into an agent, which installs and signs in the CLI by itself. To do it by hand, create an agent token there and pipe it into login, or set `SLOPPA_URL` and `SLOPPA_TOKEN`:
+Each machine the CLI runs on signs in with a token of its own. The dashboard's robot menu gives a setup prompt to paste into an agent, which installs the CLI and registers its machine with a single-use setup link; running `sloppa setup` again on the same machine re-pairs it under a new token. To do it by hand, create a machine there and pipe its token into login, or set `SLOPPA_URL` and `SLOPPA_TOKEN`:
 
 ```sh
+sloppa setup 'https://sloppa.example.com/setup/…'
 printf %s "$TOKEN" | sloppa login https://sloppa.example.com
 sloppa artifact upload -c "owner/repo #42" checkout.png run.log
 sloppa preview run -- pnpm dev

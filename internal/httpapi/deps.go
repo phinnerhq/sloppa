@@ -23,19 +23,19 @@ type Accounts interface {
 	Logout(ctx context.Context, session string) error
 	// ChangePassword is throttled like a sign-in, and signs out every other browser.
 	ChangePassword(ctx context.Context, a accounts.Account, session, current, next string) error
-	// Authenticate is who a session cookie or agent token (kind) belongs to; ok is false for neither.
+	// Authenticate is who a session cookie or machine token (kind) belongs to; ok is false for neither.
 	Authenticate(ctx context.Context, kind, token string) (a accounts.Account, ok bool, err error)
 
-	Agents(ctx context.Context, a accounts.Account) ([]api.Agent, error)
-	CreateAgent(ctx context.Context, a accounts.Account, name string) (api.CreatedAgent, error)
-	RevokeAgent(ctx context.Context, a accounts.Account, id string) error
-	RenameAgent(ctx context.Context, a accounts.Account, id, name string) error
+	Machines(ctx context.Context, a accounts.Account) ([]api.Machine, error)
+	CreateMachine(ctx context.Context, a accounts.Account, name string) (api.CreatedMachine, error)
+	RevokeMachine(ctx context.Context, a accounts.Account, id string) error
+	RenameMachine(ctx context.Context, a accounts.Account, id, name string) error
 
-	// CreateSetup makes a link any number of agents can trade for a token of their own, until it
-	// expires or is revoked.
+	// CreateSetup makes a link that registers one machine, until it expires or is revoked.
 	CreateSetup(ctx context.Context, a accounts.Account) (id, code string, expires time.Time, err error)
-	// RedeemSetup replaces the token of an agent with the same name; ok is false for a dead link.
-	RedeemSetup(ctx context.Context, code, name string) (token string, ok bool, err error)
+	// RedeemSetup spends a link on a new machine, or re-pairs the one current is the token of if it's
+	// the link's user's; ok is false for a dead link.
+	RedeemSetup(ctx context.Context, code, current string, facts api.MachineFacts) (r api.SetupResult, ok bool, err error)
 	// SetupExpiry is when a live link stops working; ok is false for a dead one.
 	SetupExpiry(ctx context.Context, code string) (expires time.Time, ok bool, err error)
 	RevokeSetup(ctx context.Context, code string) (revoked bool, err error)

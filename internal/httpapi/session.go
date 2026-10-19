@@ -64,7 +64,8 @@ func (s *server) registerSession() {
 
 	huma.Register(s.api, s.operation("Session", "session.current", http.MethodGet, "/api/session", signedIn),
 		func(ctx context.Context, _ *struct{}) (*userOutput, error) {
-			return &userOutput{Body: api.User{Username: account(ctx).Username}}, nil
+			a := account(ctx)
+			return &userOutput{Body: api.User{Username: a.Username, Machine: a.MachineName}}, nil
 		})
 
 	huma.Register(s.api, s.operation("Session", "session.logout", http.MethodDelete, "/api/session", signedIn),

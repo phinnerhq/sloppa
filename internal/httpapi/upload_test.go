@@ -70,7 +70,7 @@ func (h *harness) upload(token string, parts ...part) *httptest.ResponseRecorder
 
 func TestUpload(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	rec := h.upload(token,
 		field("collection", " owner/repo #42 "),
 		file("hello.txt", "text/plain", "hello world\n"),
@@ -120,7 +120,7 @@ func TestUploadNeedsSignIn(t *testing.T) {
 
 func TestUploadRefusals(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	for name, parts := range map[string][]part{
 		"collection after the files": {file("a.txt", "", "a"), field("collection", "x")},
 		"no collection":              {file("a.txt", "", "a")},
@@ -147,7 +147,7 @@ func TestUploadRefusals(t *testing.T) {
 
 func TestUploadIgnoresOtherFields(t *testing.T) {
 	h := newHarness(t)
-	rec := (h.upload(h.agentToken(), field("note", "hi"), field("collection", "x"), file("a.txt", "", "a"), field("files", "")))
+	rec := (h.upload(h.machineToken(), field("note", "hi"), field("collection", "x"), file("a.txt", "", "a"), field("files", "")))
 	if rec.Code != http.StatusOK || len(decode[[]api.Artifact](t, rec)) != 1 {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
@@ -156,7 +156,7 @@ func TestUploadIgnoresOtherFields(t *testing.T) {
 func TestUploadFailsAsAWhole(t *testing.T) {
 	h := newHarness(t)
 	h.artifacts.failUpload = 2
-	rec := (h.upload(h.agentToken(), field("collection", "x"), file("a.txt", "", "a"), file("b.txt", "", "b"), file("c.txt", "", "c")))
+	rec := (h.upload(h.machineToken(), field("collection", "x"), file("a.txt", "", "a"), file("b.txt", "", "b"), file("c.txt", "", "c")))
 	if code, msg := errorCode(t, rec); rec.Code != http.StatusBadGateway || code != "storage_error" || msg != "bucket on fire" {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
@@ -170,7 +170,7 @@ func TestUploadFailsAsAWhole(t *testing.T) {
 
 func TestUploadLimitsEachFile(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	exactly := part{field: "files", filename: "big.bin", body: io.LimitReader(zeros{}, api.MaxUploadBytes)}
 	rec := (h.upload(token, field("collection", "x"), exactly))
 	if rec.Code != http.StatusOK {
@@ -193,7 +193,7 @@ func TestUploadLimitsTheWhole(t *testing.T) {
 	for range 3 {
 		parts = append(parts, part{field: "files", filename: "big.bin", body: io.LimitReader(zeros{}, 50<<20)})
 	}
-	rec := (h.upload(h.agentToken(), parts...))
+	rec := (h.upload(h.machineToken(), parts...))
 	if code, _ := errorCode(t, rec); rec.Code != http.StatusRequestEntityTooLarge || code != "payload_too_large" {
 		t.Errorf("%d %s", rec.Code, rec.Body)
 	}

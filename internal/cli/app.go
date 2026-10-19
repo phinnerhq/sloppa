@@ -74,6 +74,7 @@ func newApp(serve cli.ActionFunc, version string) *cli.Command {
 			return nil
 		},
 		Commands: []*cli.Command{
+			a.setupCommand(),
 			a.loginCommand(),
 			a.whoamiCommand(),
 			a.artifactCommand(),
@@ -177,11 +178,11 @@ const tokenMax = 64 << 10
 func (a *app) loginCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "login",
-		Usage:     "Save a server and an agent token, piped in, for the other commands",
+		Usage:     "Save a server and a machine token made in the dashboard, piped in, for the other commands",
 		ArgsUsage: "<url>",
 		Metadata: helpSections(
 			[]argument{{"url", "The sloppa server, e.g. https://sloppa.example.com"}},
-			example{pipeToken, "The token from the dashboard's robot menu"},
+			example{pipeToken, "A token from the dashboard's machines menu; `sloppa setup` makes one for you"},
 			example{"SLOPPA_URL=https://sloppa.example.com SLOPPA_TOKEN=… sloppa artifact list", "Or both in the environment, which wins over what's saved"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -203,7 +204,7 @@ func (a *app) loginCommand() *cli.Command {
 				token = strings.TrimSpace(string(read))
 			}
 			if token == "" {
-				return userErrorf("Pipe an agent token in, so it stays out of your shell history:\n  %s", pipeToken)
+				return userErrorf("Pipe a machine token in, so it stays out of your shell history:\n  %s", pipeToken)
 			}
 			c := credentials{URL: server, Token: token}
 			user, _, err := newClient(c, a.version).session(ctx)
@@ -223,10 +224,10 @@ func (a *app) loginCommand() *cli.Command {
 func (a *app) whoamiCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "whoami",
-		Usage: "Print who the agent token signs in as, which also checks the CLI is set up",
+		Usage: "Print who the CLI signs in as, and on which machine, which also checks it's set up",
 		Flags: []cli.Flag{jsonFlag()},
 		Metadata: helpSections(nil,
-			example{"sloppa whoami", "The user name, or an error saying how to sign in"},
+			example{"sloppa whoami", "The user and machine, like `admin on laptop`, or an error saying how to sign in"},
 		),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			c, err := a.client()
@@ -239,6 +240,10 @@ func (a *app) whoamiCommand() *cli.Command {
 			}
 			if cmd.Bool("json") {
 				return printJSON(stdout(cmd), raw)
+			}
+			if user.Machine != "" {
+				fmt.Fprintf(stdout(cmd), "%s on %s\n", user.Username, user.Machine)
+				return nil
 			}
 			fmt.Fprintln(stdout(cmd), user.Username)
 			return nil

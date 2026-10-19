@@ -148,15 +148,15 @@ func TestLogout(t *testing.T) {
 	}
 }
 
-func TestAgentsCanLogOutWithoutEndingSessions(t *testing.T) {
+func TestMachinesCanLogOutWithoutEndingSessions(t *testing.T) {
 	h := newHarness(t)
-	token := h.agentToken()
+	token := h.machineToken()
 	session := h.login()
 	if res := h.send(h.req("DELETE", "/api/session", nil).bearer(token)); res.Code != http.StatusNoContent {
-		t.Fatalf("logout as an agent: %d %s", res.Code, res.Body)
+		t.Fatalf("logout as a machine: %d %s", res.Code, res.Body)
 	}
 	if res := h.send(h.req("GET", "/api/session", nil).cookie(session)); res.Code != http.StatusOK {
-		t.Errorf("an agent's logout ended a session: %d", res.Code)
+		t.Errorf("a machine's logout ended a session: %d", res.Code)
 	}
 }
 
@@ -173,9 +173,9 @@ func TestChangePassword(t *testing.T) {
 	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": "wrong-password", "next": "second-pass"}).cookie(here))
 	like(t, res, "29-change-password-wrong", true)
 
-	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "second-pass"}).bearer(h.agentToken()))
+	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "second-pass"}).bearer(h.machineToken()))
 	if code, msg := errorCode(t, res); res.Code != http.StatusUnauthorized || msg != "Sign in from a browser for this" {
-		t.Errorf("as an agent: %d %s %s", res.Code, code, msg)
+		t.Errorf("as a machine: %d %s %s", res.Code, code, msg)
 	}
 
 	res = h.send(h.req("PUT", "/api/session/password", map[string]string{"current": testPassword, "next": "second-pass"}).cookie(here))
@@ -231,31 +231,31 @@ func TestThrottleTakesTheForwardedClientBehindAProxy(t *testing.T) {
 func TestCrossOriginProtection(t *testing.T) {
 	h := newHarness(t)
 	session := h.login()
-	token := h.agentToken()
+	token := h.machineToken()
 	body := map[string]string{"name": "x"}
 
-	res := h.send(h.req("POST", "/api/agents", body).cookie(session).header("Sec-Fetch-Site", "cross-site"))
+	res := h.send(h.req("POST", "/api/machines", body).cookie(session).header("Sec-Fetch-Site", "cross-site"))
 	if code, _ := errorCode(t, res); res.Code != http.StatusForbidden || code != "forbidden" {
 		t.Errorf("cross-site with the cookie: %d %s", res.Code, res.Body)
 	}
 	// A page on a preview's subdomain is same-site, and still not the app.
-	res = h.send(h.req("POST", "/api/agents", body).cookie(session).header("Sec-Fetch-Site", "same-site"))
+	res = h.send(h.req("POST", "/api/machines", body).cookie(session).header("Sec-Fetch-Site", "same-site"))
 	if res.Code != http.StatusForbidden {
 		t.Errorf("same-site with the cookie: %d", res.Code)
 	}
-	res = h.send(h.req("POST", "/api/agents", body).cookie(session).header("Origin", "http://evil.test"))
+	res = h.send(h.req("POST", "/api/machines", body).cookie(session).header("Origin", "http://evil.test"))
 	if res.Code != http.StatusForbidden {
 		t.Errorf("another origin with the cookie: %d", res.Code)
 	}
-	res = h.send(h.req("POST", "/api/agents", body).cookie(session).header("Sec-Fetch-Site", "same-origin"))
+	res = h.send(h.req("POST", "/api/machines", body).cookie(session).header("Sec-Fetch-Site", "same-origin"))
 	if res.Code != http.StatusOK {
 		t.Errorf("same-origin: %d %s", res.Code, res.Body)
 	}
-	res = h.send(h.req("POST", "/api/agents", body).cookie(session).header("Origin", "http://sloppa.test"))
+	res = h.send(h.req("POST", "/api/machines", body).cookie(session).header("Origin", "http://sloppa.test"))
 	if res.Code != http.StatusOK {
 		t.Errorf("the app's origin: %d %s", res.Code, res.Body)
 	}
-	res = h.send(h.req("GET", "/api/agents", nil).cookie(session).header("Sec-Fetch-Site", "cross-site"))
+	res = h.send(h.req("GET", "/api/machines", nil).cookie(session).header("Sec-Fetch-Site", "cross-site"))
 	if res.Code != http.StatusOK {
 		t.Errorf("a cross-site GET: %d", res.Code)
 	}

@@ -75,10 +75,11 @@ var (
 	KindInternalError       = ErrorKind{"internal_error", http.StatusInternalServerError, ""}
 	KindStorageError        = ErrorKind{"storage_error", http.StatusBadGateway, ""}
 	KindPreviewsUnavailable = ErrorKind{"previews_unavailable", http.StatusServiceUnavailable, ""}
+	KindSetupLinkGone       = ErrorKind{"setup_link_gone", http.StatusGone, ""}
 )
 
 // ErrorKinds is every kind of error the API's operations document. KindNotFound isn't among them: it
-// answers paths that aren't operations.
+// answers paths that aren't operations; nor is KindSetupLinkGone, from setup links outside the API.
 var ErrorKinds = []ErrorKind{
 	KindBadRequest, KindUnauthorized, KindInvalidCredentials, KindForbidden, KindArtifactNotFound,
 	KindPreviewNotFound, KindPreviewNameTaken, KindPayloadTooLarge, KindTooManyAttempts, KindInternalError,
@@ -128,3 +129,9 @@ func StorageError(message string) *Error { return KindStorageError.New(message) 
 
 // PreviewsUnavailable means previews aren't configured on this server.
 func PreviewsUnavailable(message string) *Error { return KindPreviewsUnavailable.New(message) }
+
+// SetupLinkGone answers a setup link that was used already, expired or was revoked, or never was:
+// they're all told apart by nobody.
+func SetupLinkGone() *Error {
+	return KindSetupLinkGone.New("This setup link was used already, expired or was revoked: make a new one from the dashboard")
+}

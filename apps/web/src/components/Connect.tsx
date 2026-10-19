@@ -2,15 +2,15 @@ import { Popover } from "@base-ui/react/popover"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import {
-  agentsQuery,
-  createAgentMutation,
+  createMachineMutation,
   createSetupMutation,
-  renameAgentMutation,
-  revokeAgentMutation,
+  machinesQuery,
+  renameMachineMutation,
+  revokeMachineMutation,
   revokeSetupMutation
 } from "../api.ts"
-import type { Agent, SetupLink } from "../client/types.gen.ts"
-import { AGENT_NAME_MAX } from "../constants.ts"
+import type { Machine, SetupLink } from "../client/types.gen.ts"
+import { MACHINE_NAME_MAX } from "../constants.ts"
 import { formatAgo } from "../format.ts"
 import { shared, useShared } from "../store.ts"
 import { Button, CopyButton, overlayScrollbar, useNow, useToast } from "./ui.tsx"
@@ -43,8 +43,8 @@ const SetupPrompt = () => {
   const live = link !== null && msLeft(link, now) > 0
   const minutes = link === null ? 0 : Math.max(1, Math.round(msLeft(link, now) / 60_000))
 
-  // Agents show up below as they redeem the link.
-  useQuery({ ...agentsQuery, refetchInterval: live && 4_000 })
+  // The machine shows up below as it redeems the link.
+  useQuery({ ...machinesQuery, refetchInterval: live && 4_000 })
 
   const make = () =>
     void create.mutateAsync({}).then(
@@ -79,7 +79,7 @@ const SetupPrompt = () => {
       </div>
       <div className="flex items-center justify-between gap-3 text-xs font-bold text-ink/60">
         <span>
-          works for {minutes} more minute{minutes === 1 ? "" : "s"}, for as many agents as you paste it into
+          works once, for {minutes} more minute{minutes === 1 ? "" : "s"}: paste it into one agent
         </span>
         <Button
           tone="red"
@@ -107,23 +107,23 @@ const SMALL_ICON = "[&>.pressable-face]:size-8"
 const NAME_BOX = "-mx-2 block w-[calc(100%+1rem)] rounded-md border-2 px-1.5 py-0 text-sm leading-5 font-extrabold"
 
 /** Saves on Enter or leaving the field; Escape (or an empty name) keeps the old one. */
-const RenameField = ({ agent, onDone }: { agent: Agent; onDone: () => void }) => {
-  const rename = useMutation(renameAgentMutation)
+const RenameField = ({ machine, onDone }: { machine: Machine; onDone: () => void }) => {
+  const rename = useMutation(renameMachineMutation)
   const toast = useToast()
-  const [name, setName] = useState(agent.name)
+  const [name, setName] = useState(machine.name)
   const save = () => {
     onDone()
     const next = name.trim()
-    if (next === "" || next === agent.name) return
+    if (next === "" || next === machine.name) return
     // A promise rather than mutate's callbacks, which stop once the field is gone, as it is by now.
-    void rename.mutateAsync({ path: { id: agent.id }, body: { name: next } }).catch(() => toast("couldn't rename it"))
+    void rename.mutateAsync({ path: { id: machine.id }, body: { name: next } }).catch(() => toast("couldn't rename it"))
   }
   return (
     <input
       autoFocus
       value={name}
-      maxLength={AGENT_NAME_MAX}
-      aria-label={`Rename ${agent.name}`}
+      maxLength={MACHINE_NAME_MAX}
+      aria-label={`Rename ${machine.name}`}
       onChange={(e) => setName(e.target.value)}
       onFocus={(e) => e.target.select()}
       onBlur={save}
@@ -132,7 +132,7 @@ const RenameField = ({ agent, onDone }: { agent: Agent; onDone: () => void }) =>
         if (e.key === "Escape") {
           // Don't close the menu along with the field.
           e.stopPropagation()
-          setName(agent.name)
+          setName(machine.name)
           onDone()
         }
       }}
@@ -141,8 +141,15 @@ const RenameField = ({ agent, onDone }: { agent: Agent; onDone: () => void }) =>
   )
 }
 
-const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
-  const revoke = useMutation(revokeAgentMutation)
+/** Where it runs, as far as `sloppa setup` said: nothing for machines made by hand. */
+const facts = (machine: Machine) =>
+  [
+    machine.hostname !== machine.name && machine.hostname,
+    machine.os !== undefined && [machine.os, machine.arch].filter(Boolean).join("/")
+  ].filter(Boolean)
+
+const MachineRow = ({ machine, now }: { machine: Machine; now: number }) => {
+  const revoke = useMutation(revokeMachineMutation)
   const toast = useToast()
   const [editing, setEditing] = useState(false)
   return (
@@ -150,20 +157,23 @@ const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
       <RobotIcon size={18} className="shrink-0 text-ink/50" />
       <div className="min-w-0 flex-1">
         {editing ? (
-          <RenameField agent={agent} onDone={() => setEditing(false)} />
+          <RenameField machine={machine} onDone={() => setEditing(false)} />
         ) : (
-          <p className={`${NAME_BOX} truncate border-transparent`} title={agent.name}>
-            {agent.name}
+          <p className={`${NAME_BOX} truncate border-transparent`} title={machine.name}>
+            {machine.name}
           </p>
         )}
-        <p className="text-[11px] font-bold text-ink/55">
-          {agent.lastUsedAt === undefined ? "not used yet" : `used ${formatAgo(agent.lastUsedAt, now)}`}
+        <p className="truncate text-[11px] font-bold text-ink/55">
+          {[
+            ...facts(machine),
+            machine.lastSeenAt === undefined ? "not seen yet" : `seen ${formatAgo(machine.lastSeenAt, now)}`
+          ].join(" · ")}
         </p>
       </div>
       <Button
         tone="cream"
         size="icon"
-        aria-label={`Rename ${agent.name}`}
+        aria-label={`Rename ${machine.name}`}
         title="Rename"
         className={SMALL_ICON}
         onClick={() => setEditing(true)}
@@ -173,13 +183,18 @@ const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
       <Button
         tone="cream"
         size="icon"
-        aria-label={`Revoke ${agent.name}`}
+        aria-label={`Revoke ${machine.name}`}
         title="Revoke its token"
         className={SMALL_ICON}
         onClick={() => {
-          if (!window.confirm(`Revoke ${agent.name}? It won't reach this server until it's set up again.`)) return
+          if (
+            !window.confirm(
+              `Revoke ${machine.name}? Its token stops working and its previews end, until it's set up again.`
+            )
+          )
+            return
           // The row goes as the list refetches, before mutate's callbacks would run.
-          void revoke.mutateAsync({ path: { id: agent.id } }).then(
+          void revoke.mutateAsync({ path: { id: machine.id } }).then(
             () => toast("revoked"),
             () => toast("couldn't revoke it")
           )
@@ -195,7 +210,7 @@ const AgentRow = ({ agent, now }: { agent: Agent; now: number }) => {
 const createdKey = shared<{ readonly name: string; readonly token: string } | null>(null)
 
 const NewKey = ({ onDone }: { onDone: () => void }) => {
-  const create = useMutation(createAgentMutation)
+  const create = useMutation(createMachineMutation)
   const toast = useToast()
   const [name, setName] = useState("")
   return (
@@ -208,19 +223,19 @@ const NewKey = ({ onDone }: { onDone: () => void }) => {
         // token would be lost with them.
         void create.mutateAsync({ body: { name: name.trim() } }).then(
           (created) => {
-            createdKey.set({ name: created.agent.name, token: created.token })
+            createdKey.set({ name: created.machine.name, token: created.token })
             onDone()
           },
-          () => toast("couldn't make a key")
+          () => toast("couldn't make a token")
         )
       }}
     >
       <input
         autoFocus
         value={name}
-        maxLength={AGENT_NAME_MAX}
-        placeholder="label, e.g. CI on GitHub"
-        aria-label="API key label"
+        maxLength={MACHINE_NAME_MAX}
+        placeholder="name, e.g. CI on GitHub"
+        aria-label="Machine name"
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Escape") return
@@ -244,13 +259,13 @@ const CreatedKey = ({ name, token }: { name: string; token: string }) => {
         <span className="min-w-0 truncate text-sm font-extrabold" title={name}>
           {name}
         </span>
-        <CopyButton value={token} label="copy" toast="key copied" tone="blue" size="sm" />
+        <CopyButton value={token} label="copy" toast="token copied" tone="blue" size="sm" />
       </div>
       <code className="block rounded-lg border-2 border-ink bg-white px-2.5 py-1.5 font-mono text-xs break-all">
         <Redacted text={token} secret={token} />
       </code>
       <div className="flex items-center justify-between gap-3 text-xs font-bold text-ink/60">
-        <span>shown this once: send it as Authorization: Bearer &lt;key&gt;</span>
+        <span>shown this once: pipe it into sloppa login, or send it as Authorization: Bearer &lt;token&gt;</span>
         <Button size="sm" onClick={() => createdKey.set(null)}>
           done
         </Button>
@@ -259,20 +274,20 @@ const CreatedKey = ({ name, token }: { name: string; token: string }) => {
   )
 }
 
-const Agents = () => {
-  const { data: list = [] } = useQuery(agentsQuery)
+const Machines = () => {
+  const { data: list = [] } = useQuery(machinesQuery)
   const created = useShared(createdKey)
   const [adding, setAdding] = useState(false)
   const now = useNow(30_000)
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-game text-lg">agents & keys</p>
+        <p className="font-game text-lg">machines</p>
         {!adding && (
           <Button tone="cream" size="sm" onClick={() => setAdding(true)}>
             <span className="flex items-center gap-1.5">
               <KeyIcon size={14} />
-              API key
+              by hand
             </span>
           </Button>
         )}
@@ -280,11 +295,11 @@ const Agents = () => {
       {adding && <NewKey onDone={() => setAdding(false)} />}
       {created !== null && <CreatedKey name={created.name} token={created.token} />}
       {list.length === 0 ? (
-        <p className="text-xs font-bold text-ink/55">none yet: they show up here as they connect.</p>
+        <p className="text-xs font-bold text-ink/55">none yet: they show up here as they're set up.</p>
       ) : (
         <ul className="divide-y-2 divide-dashed divide-ink/15">
-          {list.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} now={now} />
+          {list.map((machine) => (
+            <MachineRow key={machine.id} machine={machine} now={now} />
           ))}
         </ul>
       )}
@@ -292,24 +307,24 @@ const Agents = () => {
   )
 }
 
-/** A setup prompt to paste into agents, keys made by hand, and everything already connected. */
-export const AgentSetup = () => (
+/** A setup prompt to paste into an agent, machines made by hand, and every machine already set up. */
+export const MachineSetup = () => (
   <div className="space-y-4 text-left">
     <SetupPrompt />
-    <Agents />
+    <Machines />
   </div>
 )
 
-/** The header's way to hook an agent up to this server. */
-export const ConnectAgent = () => (
+/** The header's way to hook a machine, and the agents on it, up to this server. */
+export const ConnectMachine = () => (
   <Popover.Root>
     <Popover.Trigger
       render={
         <Button
           tone="gold"
           size="icon"
-          aria-label="Connect an agent"
-          title="Connect an agent"
+          aria-label="Connect a machine"
+          title="Connect a machine"
           className="[&>.pressable-face]:size-12.5"
         >
           <RobotIcon size={22} />
@@ -320,12 +335,12 @@ export const ConnectAgent = () => (
       <Popover.Positioner align="end" sideOffset={10} collisionPadding={12} className="z-40 outline-none">
         <Popover.Popup className="game-picker w-[min(26rem,calc(100vw-1.5rem))] space-y-3 p-4">
           <div>
-            <Popover.Title className="font-game text-xl">connect an agent</Popover.Title>
+            <Popover.Title className="font-game text-xl">connect a machine</Popover.Title>
             <Popover.Description className="text-sm font-semibold text-ink/70">
-              paste the prompt into Claude Code, Codex or any agent with a shell: it sets itself up.
+              paste the prompt into Claude Code, Codex or any agent with a shell: it sets its machine up.
             </Popover.Description>
           </div>
-          <AgentSetup />
+          <MachineSetup />
         </Popover.Popup>
       </Popover.Positioner>
     </Popover.Portal>

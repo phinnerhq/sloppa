@@ -40,7 +40,7 @@ func apiFailure(what string, err error) error {
 	var ae *api.Error
 	if errors.As(err, &ae) && (ae.Code == "unauthorized" || ae.Code == "" && ae.Status == 401) {
 		return &userError{
-			message: fmt.Sprintf("%s: the server refused this agent token. Sign in again:\n  %s", what, signInAgain),
+			message: fmt.Sprintf("%s: the server refused this machine's token. Set it up again with a new setup link, or:\n  %s", what, signInAgain),
 			cause:   err,
 		}
 	}

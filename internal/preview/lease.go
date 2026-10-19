@@ -152,7 +152,7 @@ func (s *Service) Tunnel(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	a, ok := accounts.FromContext(r.Context())
 	if !ok {
-		writeError(w, api.Unauthorized("Sign in, or pass an agent token as a bearer"))
+		writeError(w, api.Unauthorized("Sign in, or pass a machine token as a bearer"))
 		return
 	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{tunnel.Subprotocol}})

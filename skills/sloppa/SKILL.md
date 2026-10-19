@@ -9,10 +9,10 @@ description: Attach screenshots, recordings, logs or reports to a PR or issue as
 
 ## Ready
 
-`sloppa whoami` prints the user name when the CLI is installed and signed in.
+`sloppa whoami` prints the user name, and the machine, when the CLI is installed and signed in.
 
 - Command not found: ask the user to install it (the sloppa repo's README, under CLI).
-- An error about signing in: ask the user for the server URL and an agent token (the dashboard's robot menu), then run `printf %s "$TOKEN" | sloppa login <url>`, keeping the token out of chat and tool output.
+- An error about signing in: ask the user for a setup link (the dashboard's robot menu makes a setup prompt with one), then run `sloppa setup '<link>'`. It registers this machine, or re-pairs it if it was set up before, and saves its token without showing it.
 
 ## Attach files to a PR
 

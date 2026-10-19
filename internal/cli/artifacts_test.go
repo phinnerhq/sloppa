@@ -186,7 +186,7 @@ func TestUploadRefusedToken(t *testing.T) {
 
 	res := run(t, "", "artifact", "upload", "-c", "o/r #3", file(t, "refused.txt", []byte("x")))
 
-	want := "Upload failed: the server refused this agent token. Sign in again:\n  " + signInAgain + "\n"
+	want := "Upload failed: the server refused this machine's token. Set it up again with a new setup link, or:\n  " + signInAgain + "\n"
 	if res.code != 1 || res.stderr != want {
 		t.Errorf("%+v", res)
 	}

@@ -14,7 +14,7 @@ type row struct {
 	label string
 	name  string
 	user  int64
-	// credential is the session or agent token that started the preview: revoking it deletes the row.
+	// credential is the session or machine token that started the preview: revoking it deletes the row.
 	credential   string
 	passwordHash string
 	port         int

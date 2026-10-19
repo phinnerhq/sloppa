@@ -155,7 +155,7 @@ func refused(resp *http.Response) *tunnelEnd {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
 		if reason == "" {
-			reason = "the server refused this agent token"
+			reason = "the server refused this machine's token"
 		}
 		return new(closedBy(tunnel.CloseUnauthorized, reason))
 	case http.StatusNotFound, http.StatusGone:

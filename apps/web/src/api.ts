@@ -1,11 +1,5 @@
 import { keepPreviousData, mutationOptions, QueryClient, queryOptions } from "@tanstack/react-query"
 import {
-  agentsCreateMutation,
-  agentsCreateSetupMutation,
-  agentsListOptions,
-  agentsRenameMutation,
-  agentsRevokeMutation,
-  agentsRevokeSetupMutation,
   artifactsCollectionsOptions,
   artifactsDeleteMutation,
   artifactsGetOptions,
@@ -13,6 +7,12 @@ import {
   artifactsListInfiniteOptions,
   artifactsMosaicInfiniteOptions,
   artifactsStatsOptions,
+  machinesCreateMutation,
+  machinesCreateSetupMutation,
+  machinesListOptions,
+  machinesRenameMutation,
+  machinesRevokeMutation,
+  machinesRevokeSetupMutation,
   previewsListOptions,
   previewsStopMutation,
   sessionChangePasswordMutation,
@@ -37,7 +37,7 @@ export const queryClient = new QueryClient({
 })
 
 /** Every query under one of the API document's tags. */
-const invalidate = (tag: "Artifacts" | "Agents" | "Previews") =>
+const invalidate = (tag: "Artifacts" | "Machines" | "Previews") =>
   queryClient.invalidateQueries({ queryKey: [{ tags: [tag] }] })
 
 /** Who is signed in; fails with `unauthorized` when nobody is. Only signing in or out changes it. */
@@ -55,12 +55,21 @@ export const logoutMutation = mutationOptions({
 })
 export const changePasswordMutation = sessionChangePasswordMutation()
 
-export const agentsQuery = agentsListOptions()
-export const createAgentMutation = mutationOptions({ ...agentsCreateMutation(), onSuccess: () => invalidate("Agents") })
-export const revokeAgentMutation = mutationOptions({ ...agentsRevokeMutation(), onSuccess: () => invalidate("Agents") })
-export const renameAgentMutation = mutationOptions({ ...agentsRenameMutation(), onSuccess: () => invalidate("Agents") })
-export const createSetupMutation = agentsCreateSetupMutation()
-export const revokeSetupMutation = agentsRevokeSetupMutation()
+export const machinesQuery = machinesListOptions()
+export const createMachineMutation = mutationOptions({
+  ...machinesCreateMutation(),
+  onSuccess: () => invalidate("Machines")
+})
+export const revokeMachineMutation = mutationOptions({
+  ...machinesRevokeMutation(),
+  onSuccess: () => invalidate("Machines")
+})
+export const renameMachineMutation = mutationOptions({
+  ...machinesRenameMutation(),
+  onSuccess: () => invalidate("Machines")
+})
+export const createSetupMutation = machinesCreateSetupMutation()
+export const revokeSetupMutation = machinesRevokeSetupMutation()
 
 /** Dev servers shared with `sloppa preview run`, live for as long as that runs. */
 export const previewsQuery = previewsListOptions()

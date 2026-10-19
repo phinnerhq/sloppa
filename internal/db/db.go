@@ -68,13 +68,18 @@ func OpenState(ctx context.Context, dataDir string) (*sql.DB, error) {
 	return db, nil
 }
 
-// Migrate applies the state migrations in migrations/.
-func Migrate(ctx context.Context, db *sql.DB) error {
+// migrator runs the state migrations in migrations/ on db.
+func migrator(db *sql.DB) (*goose.Provider, error) {
 	sub, err := fs.Sub(migrations, "migrations")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db, sub)
+	return goose.NewProvider(goose.DialectSQLite3, db, sub)
+}
+
+// Migrate applies the state migrations in migrations/.
+func Migrate(ctx context.Context, db *sql.DB) error {
+	provider, err := migrator(db)
 	if err != nil {
 		return err
 	}

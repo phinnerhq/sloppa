@@ -14,7 +14,7 @@ type credentials struct {
 	Token string `json:"token"`
 }
 
-var errNotSignedIn = userErrorf("Not signed in to sloppa: set SLOPPA_URL and SLOPPA_TOKEN, or pipe an agent token in:\n  %s", signInAgain)
+var errNotSignedIn = userErrorf("Not signed in to sloppa: run `sloppa setup '<setup-link>'` with a link from the dashboard, set SLOPPA_URL and SLOPPA_TOKEN, or pipe a machine token in:\n  %s", signInAgain)
 
 // credentialsPath is where `sloppa login` keeps the server and token, readable by this user alone:
 // the user's config directory, as the OS has it.
@@ -61,8 +61,8 @@ func readCredentials() (credentials, bool) {
 	return credentials{}, false
 }
 
-// loadCredentials lets SLOPPA_URL and SLOPPA_TOKEN win over the file, each on its own, so one
-// machine can serve several agents.
+// loadCredentials lets SLOPPA_URL and SLOPPA_TOKEN win over the file, each on its own, for a
+// script with a token of its own, or another server.
 func loadCredentials() (credentials, error) {
 	c := credentials{URL: os.Getenv("SLOPPA_URL"), Token: os.Getenv("SLOPPA_TOKEN")}
 	if c.URL == "" || c.Token == "" {

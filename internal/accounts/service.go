@@ -1,10 +1,11 @@
-// Package accounts is users, and everything that signs in as one: browser sessions, agent tokens
-// and the setup links agents trade for tokens. Unlike the artifact index this isn't derived from
+// Package accounts is users, and everything that signs in as one: browser sessions, the machines
+// the CLI is set up on with their tokens, and the setup links that register machines. Unlike the artifact index this isn't derived from
 // storage, so the state database is the one file to keep. The first user comes from
 // BOOTSTRAP_USERNAME and BOOTSTRAP_PASSWORD, which can go once it exists.
 package accounts
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -161,7 +162,7 @@ func hashOf(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func agentToken() string { return api.AgentTokenPrefix + secret(32) }
+func machineToken() string { return api.TokenPrefix + secret(32) }
 
 type issued struct {
 	id      string
@@ -169,8 +170,9 @@ type issued struct {
 	expires time.Time
 }
 
-// issue stores a credential for token, sweeping out expired ones on the way. A zero ttl never expires.
-func issue(ctx context.Context, q querier, kind string, userID int64, token, name string, ttl time.Duration) (issued, error) {
+// issue stores a credential for token, sweeping out expired ones on the way. A zero ttl never expires;
+// machineID is the machine a machine token belongs to, "" for other kinds.
+func issue(ctx context.Context, q querier, kind string, userID int64, token, machineID string, ttl time.Duration) (issued, error) {
 	now := api.Time(time.Now())
 	out := issued{id: uuid.NewString(), created: now}
 	expires := sql.NullInt64{}
@@ -181,20 +183,24 @@ func issue(ctx context.Context, q querier, kind string, userID int64, token, nam
 	if _, err := q.ExecContext(ctx, `DELETE FROM credentials WHERE expires_ms <= ?`, now.UnixMilli()); err != nil {
 		return out, fmt.Errorf("sweep expired credentials: %w", err)
 	}
-	_, err := q.ExecContext(ctx, `INSERT INTO credentials (id, hash, kind, user_id, name, created_ms, expires_ms, last_used_ms)
+	_, err := q.ExecContext(ctx, `INSERT INTO credentials (id, hash, kind, user_id, machine_id, created_ms, expires_ms, last_used_ms)
 		VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
-		out.id, hashOf(token), kind, userID, sql.NullString{String: name, Valid: name != ""}, now.UnixMilli(), expires)
+		out.id, hashOf(token), kind, userID, nullable(machineID), now.UnixMilli(), expires)
 	if err != nil {
 		return out, fmt.Errorf("issue a credential: %w", err)
 	}
 	return out, nil
 }
 
+func nullable(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }
+
 type holderRow struct {
 	credentialID string
 	userID       int64
 	username     string
 	expiresMs    sql.NullInt64
+	// machineID and machineName are set for machine tokens.
+	machineID, machineName sql.NullString
 }
 
 // holder is who holds a live credential of kind, if anyone.
@@ -203,11 +209,11 @@ func holder(ctx context.Context, q querier, kind, token string) (holderRow, bool
 	if token == "" {
 		return h, false, nil
 	}
-	err := q.QueryRowContext(ctx, `SELECT credentials.id, user_id, username, expires_ms FROM credentials
-		JOIN users ON users.id = credentials.user_id
+	err := q.QueryRowContext(ctx, `SELECT credentials.id, credentials.user_id, username, expires_ms, machines.id, machines.name
+		FROM credentials JOIN users ON users.id = credentials.user_id LEFT JOIN machines ON machines.id = credentials.machine_id
 		WHERE hash = ? AND kind = ? AND (expires_ms IS NULL OR expires_ms > ?)`,
 		hashOf(token), kind, time.Now().UnixMilli()).
-		Scan(&h.credentialID, &h.userID, &h.username, &h.expiresMs)
+		Scan(&h.credentialID, &h.userID, &h.username, &h.expiresMs, &h.machineID, &h.machineName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return h, false, nil
 	}
@@ -352,82 +358,135 @@ func (s *Service) ChangePassword(ctx context.Context, a Account, session, curren
 	return tx.Commit()
 }
 
-// Authenticate is who a session cookie or an agent token belongs to. Agent tokens note when they
-// were last used, for the dashboard's list.
+// Authenticate is who a session cookie or a machine token belongs to. Machine tokens note when they
+// were last used, which is when the dashboard last saw the machine.
 func (s *Service) Authenticate(ctx context.Context, kind, token string) (Account, bool, error) {
-	if kind != KindSession && kind != KindAgent {
+	if kind != KindSession && kind != KindMachine {
 		return Account{}, false, nil
 	}
 	h, ok, err := holder(ctx, s.db, kind, token)
 	if err != nil || !ok {
 		return Account{}, false, err
 	}
-	if kind == KindAgent {
-		if _, err := s.db.ExecContext(ctx, `UPDATE credentials SET last_used_ms = ? WHERE id = ?`,
-			time.Now().UnixMilli(), h.credentialID); err != nil {
-			return Account{}, false, fmt.Errorf("note an agent's use: %w", err)
+	if kind == KindMachine {
+		if err := seen(ctx, s.db, h.credentialID); err != nil {
+			return Account{}, false, err
 		}
 	}
-	return Account{ID: h.userID, Username: h.username, CredentialID: h.credentialID, Kind: kind}, true, nil
+	return Account{
+		ID: h.userID, Username: h.username, CredentialID: h.credentialID, Kind: kind,
+		MachineID: h.machineID.String, MachineName: h.machineName.String,
+	}, true, nil
 }
 
-// Agents are a's agent tokens, newest first.
-func (s *Service) Agents(ctx context.Context, a Account) ([]api.Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_ms, last_used_ms FROM credentials
-		WHERE user_id = ? AND kind = 'agent' ORDER BY created_ms DESC`, a.ID)
+// seen notes a machine token's use.
+func seen(ctx context.Context, q querier, credentialID string) error {
+	if _, err := q.ExecContext(ctx, `UPDATE credentials SET last_used_ms = ? WHERE id = ?`,
+		time.Now().UnixMilli(), credentialID); err != nil {
+		return fmt.Errorf("note a machine's use: %w", err)
+	}
+	return nil
+}
+
+// selectMachines is machines with when their token was last used, to be followed by a WHERE and
+// GROUP BY machines.id.
+const selectMachines = `SELECT machines.id, machines.name, hostname, os, arch, cli_version, machines.created_ms,
+	MAX(credentials.last_used_ms) FROM machines LEFT JOIN credentials ON credentials.machine_id = machines.id `
+
+func scanMachine(s interface{ Scan(...any) error }) (api.Machine, error) {
+	var (
+		m                              api.Machine
+		hostname, os, arch, cliVersion sql.NullString
+		created                        int64
+		lastUsed                       sql.NullInt64
+	)
+	if err := s.Scan(&m.ID, &m.Name, &hostname, &os, &arch, &cliVersion, &created, &lastUsed); err != nil {
+		return m, err
+	}
+	m.Hostname, m.OS, m.Arch, m.CLIVersion = hostname.String, os.String, arch.String, cliVersion.String
+	m.CreatedAt = api.Millis(created)
+	if lastUsed.Valid {
+		m.LastSeenAt = new(api.Millis(lastUsed.Int64))
+	}
+	return m, nil
+}
+
+// Machines are a's machines, newest first.
+func (s *Service) Machines(ctx context.Context, a Account) ([]api.Machine, error) {
+	rows, err := s.db.QueryContext(ctx, selectMachines+`WHERE machines.user_id = ?
+		GROUP BY machines.id ORDER BY machines.created_ms DESC, machines.rowid DESC`, a.ID)
 	if err != nil {
-		return nil, fmt.Errorf("list agents: %w", err)
+		return nil, fmt.Errorf("list machines: %w", err)
 	}
 	defer rows.Close()
-	agents := []api.Agent{}
+	machines := []api.Machine{}
 	for rows.Next() {
-		var (
-			agent    api.Agent
-			name     sql.NullString
-			created  int64
-			lastUsed sql.NullInt64
-		)
-		if err := rows.Scan(&agent.ID, &name, &created, &lastUsed); err != nil {
-			return nil, fmt.Errorf("list agents: %w", err)
+		m, err := scanMachine(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list machines: %w", err)
 		}
-		agent.Name = "agent"
-		if name.Valid {
-			agent.Name = name.String
-		}
-		agent.CreatedAt = api.Millis(created)
-		if lastUsed.Valid {
-			t := api.Millis(lastUsed.Int64)
-			agent.LastUsedAt = &t
-		}
-		agents = append(agents, agent)
+		machines = append(machines, m)
 	}
-	return agents, rows.Err()
+	return machines, rows.Err()
 }
 
-// CreateAgent makes a token by hand, for a script or an app the setup prompt doesn't fit.
-func (s *Service) CreateAgent(ctx context.Context, a Account, name string) (api.CreatedAgent, error) {
-	token := agentToken()
-	cred, err := issue(ctx, s.db, KindAgent, a.ID, token, name, 0)
+func findMachine(ctx context.Context, q querier, id string) (api.Machine, error) {
+	m, err := scanMachine(q.QueryRowContext(ctx, selectMachines+`WHERE machines.id = ? GROUP BY machines.id`, id))
 	if err != nil {
-		return api.CreatedAgent{}, err
+		return m, fmt.Errorf("find a machine: %w", err)
 	}
-	return api.CreatedAgent{Agent: api.Agent{ID: cred.id, Name: name, CreatedAt: cred.created}, Token: token}, nil
+	return m, nil
 }
 
-// RevokeAgent deletes one of a's agent tokens, and with it the previews it started.
-func (s *Service) RevokeAgent(ctx context.Context, a Account, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM credentials WHERE id = ? AND user_id = ? AND kind = 'agent'`, id, a.ID)
+// addMachine registers a machine of userID's, with the facts known about it.
+func addMachine(ctx context.Context, q querier, userID int64, name string, facts api.MachineFacts) (string, error) {
+	id := uuid.NewString()
+	_, err := q.ExecContext(ctx, `INSERT INTO machines (id, user_id, name, hostname, os, arch, cli_version, created_ms)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, userID, name, nullable(facts.Hostname), nullable(facts.OS), nullable(facts.Arch), nullable(facts.CLIVersion),
+		time.Now().UnixMilli())
+	if err != nil {
+		return "", fmt.Errorf("add a machine: %w", err)
+	}
+	return id, nil
+}
+
+// CreateMachine makes a machine and its token by hand, for a script or a computer the setup prompt
+// doesn't fit. Nothing is known about it but its name.
+func (s *Service) CreateMachine(ctx context.Context, a Account, name string) (api.CreatedMachine, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return api.CreatedMachine{}, err
+	}
+	defer tx.Rollback()
+	id, err := addMachine(ctx, tx, a.ID, name, api.MachineFacts{})
+	if err != nil {
+		return api.CreatedMachine{}, err
+	}
+	token := machineToken()
+	if _, err := issue(ctx, tx, KindMachine, a.ID, token, id, 0); err != nil {
+		return api.CreatedMachine{}, err
+	}
+	m, err := findMachine(ctx, tx, id)
+	if err != nil {
+		return api.CreatedMachine{}, err
+	}
+	return api.CreatedMachine{Machine: m, Token: token}, tx.Commit()
+}
+
+// RevokeMachine deletes one of a's machines, and with it its token and the previews it started.
+func (s *Service) RevokeMachine(ctx context.Context, a Account, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND user_id = ?`, id, a.ID)
 	return err
 }
 
-func (s *Service) RenameAgent(ctx context.Context, a Account, id, name string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE credentials SET name = ? WHERE id = ? AND user_id = ? AND kind = 'agent'`,
-		name, id, a.ID)
+func (s *Service) RenameMachine(ctx context.Context, a Account, id, name string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE machines SET name = ? WHERE id = ? AND user_id = ?`, name, id, a.ID)
 	return err
 }
 
-// CreateSetup makes a link any number of agents can trade for a token of their own, until it
-// expires or is revoked.
+// CreateSetup makes a link one machine can trade for a token of its own, once, until it expires or
+// is revoked.
 func (s *Service) CreateSetup(ctx context.Context, a Account) (string, string, time.Time, error) {
 	code := secret(24)
 	cred, err := issue(ctx, s.db, KindSetup, a.ID, code, "", SetupTTL)
@@ -437,31 +496,59 @@ func (s *Service) CreateSetup(ctx context.Context, a Account) (string, string, t
 	return cred.id, code, cred.expires, nil
 }
 
-// RedeemSetup trades a live setup link for a fresh agent token named name, replacing the token of
-// an agent with the same name: setting the same app up again on the same machine overwrote its
-// config, so its old token is dead weight.
-func (s *Service) RedeemSetup(ctx context.Context, code, name string) (string, bool, error) {
+// RedeemSetup spends a live setup link on a machine with facts, and hands out its token. It's a new
+// machine, unless current is the token of a machine of the link's user: that one is re-paired,
+// rotating its token and updating its facts, so setting a machine up again keeps it. Rotating the
+// token ends the previews it started, as revoking it would: the CLI running them holds the old token
+// and couldn't reconnect them anyway. A link holder thus only touches machines whose token they have.
+func (s *Service) RedeemSetup(ctx context.Context, code, current string, facts api.MachineFacts) (api.SetupResult, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", false, err
+		return api.SetupResult{}, false, err
 	}
 	defer tx.Rollback()
 	link, ok, err := holder(ctx, tx, KindSetup, code)
 	if err != nil || !ok {
-		return "", false, err
+		return api.SetupResult{}, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM credentials WHERE user_id = ? AND kind = 'agent' AND name = ?`,
-		link.userID, name); err != nil {
-		return "", false, fmt.Errorf("replace the agent's token: %w", err)
+	// Spent on first use: a link seen later, in a chat log or a terminal's scrollback, opens nothing.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM credentials WHERE id = ?`, link.credentialID); err != nil {
+		return api.SetupResult{}, false, fmt.Errorf("spend the setup link: %w", err)
 	}
-	token := agentToken()
-	if _, err := issue(ctx, tx, KindAgent, link.userID, token, name, 0); err != nil {
-		return "", false, err
+	var out api.SetupResult
+	machine, ok, err := holder(ctx, tx, KindMachine, current)
+	if err != nil {
+		return api.SetupResult{}, false, err
+	}
+	var id string
+	if ok && machine.userID == link.userID && machine.machineID.Valid {
+		id, out.Repaired = machine.machineID.String, true
+		if _, err := tx.ExecContext(ctx, `DELETE FROM credentials WHERE machine_id = ?`, id); err != nil {
+			return api.SetupResult{}, false, fmt.Errorf("revoke the machine's old token: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE machines SET hostname = ?, os = ?, arch = ?, cli_version = ? WHERE id = ?`,
+			nullable(facts.Hostname), nullable(facts.OS), nullable(facts.Arch), nullable(facts.CLIVersion), id); err != nil {
+			return api.SetupResult{}, false, fmt.Errorf("update the machine: %w", err)
+		}
+	} else if id, err = addMachine(ctx, tx, link.userID, cmp.Or(facts.Hostname, "machine"), facts); err != nil {
+		return api.SetupResult{}, false, err
+	}
+	out.Token = machineToken()
+	cred, err := issue(ctx, tx, KindMachine, link.userID, out.Token, id, 0)
+	if err != nil {
+		return api.SetupResult{}, false, err
+	}
+	// The machine was here just now.
+	if err := seen(ctx, tx, cred.id); err != nil {
+		return api.SetupResult{}, false, err
+	}
+	if out.Machine, err = findMachine(ctx, tx, id); err != nil {
+		return api.SetupResult{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return "", false, err
+		return api.SetupResult{}, false, err
 	}
-	return token, true, nil
+	return out, true, nil
 }
 
 // SetupExpiry is when a live setup link stops working; it redeems nothing.

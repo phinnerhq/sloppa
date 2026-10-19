@@ -186,9 +186,9 @@ func TestPreviewRunFailsOnARefusal(t *testing.T) {
 	srv := d.preview.next(t)
 	server, grandchild := d.ready(t)
 
-	srv.Close(tunnel.CloseUnauthorized, "the agent token was revoked")
+	srv.Close(tunnel.CloseUnauthorized, "the machine token was revoked")
 
-	if res := d.wait(t); res.code != 1 || !strings.Contains(res.stderr, "sloppa: preview unauthorized: the agent token was revoked; stopped the dev server") {
+	if res := d.wait(t); res.code != 1 || !strings.Contains(res.stderr, "sloppa: preview unauthorized: the machine token was revoked; stopped the dev server") {
 		t.Errorf("exit %d: %s", res.code, res.stderr)
 	}
 	gone(t, server, grandchild)
