@@ -272,9 +272,13 @@ func (s *Service) SetMachineInstructions(ctx context.Context, a accounts.Account
 // upload.
 type origin struct{ source, path, ref string }
 
-// save writes a skill's files under name, keeping whether it's on and where. changed is false when it
-// had these files already, which leaves it as it was, origin included.
-func save(ctx context.Context, db *sql.DB, userID int64, name string, files []api.SkillFile, from origin) (k api.Skill, changed bool, err error) {
+// errChanged is a skill changed by someone else since an update read it.
+var errChanged = errors.New("changed meanwhile")
+
+// save writes a skill's files under name, keeping whether it's on and where, unless expect is set and the skill isn't as it was then (by version and source): an
+// update that took a while mustn't undo an upload made meanwhile. That's errChanged. changed is false
+// when it had these files already, which leaves it as it was, origin included.
+func save(ctx context.Context, db *sql.DB, userID int64, name string, files []api.SkillFile, from origin, expect *api.Skill) (k api.Skill, changed bool, err error) {
 	hash := api.SkillHash(files)
 	_, description := Frontmatter(skillMD(files))
 	tx, err := db.BeginTx(ctx, nil)
@@ -283,9 +287,13 @@ func save(ctx context.Context, db *sql.DB, userID int64, name string, files []ap
 	}
 	defer tx.Rollback()
 	var current string
-	err = tx.QueryRowContext(ctx, `SELECT hash FROM skills WHERE user_id = ? AND name = ?`, userID, name).Scan(&current)
+	var currentSource sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT hash, source FROM skills WHERE user_id = ? AND name = ?`, userID, name).Scan(&current, &currentSource)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return api.Skill{}, false, err
+	}
+	if expect != nil && (current != expect.Hash || currentSource.String != expect.Source) {
+		return api.Skill{}, false, errChanged
 	}
 	changed = current != hash
 	if changed {
@@ -334,7 +342,7 @@ func (s *Service) PutSkill(ctx context.Context, a accounts.Account, name string,
 	if err != nil {
 		return api.Skill{}, err
 	}
-	k, changed, err := save(ctx, s.db, a.ID, name, files, origin{})
+	k, changed, err := save(ctx, s.db, a.ID, name, files, origin{}, nil)
 	if err != nil {
 		return api.Skill{}, err
 	}
@@ -404,7 +412,7 @@ func (s *Service) ImportSkills(ctx context.Context, a accounts.Account, source s
 	}
 	imported := []api.Skill{}
 	for _, k := range picked {
-		saved, _, err := save(ctx, s.db, a.ID, k.name, k.files, origin{source: source, path: k.path, ref: repo.ref})
+		saved, _, err := save(ctx, s.db, a.ID, k.name, k.files, origin{source: source, path: k.path, ref: repo.ref}, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -460,7 +468,11 @@ func (s *Service) UpdateSkills(ctx context.Context, a accounts.Account, names []
 				u.Failed = append(u.Failed, api.SkillUpdateFailure{Name: k.Name, Message: found.err.Error()})
 				continue
 			}
-			_, changed, err := save(ctx, s.db, a.ID, k.Name, found.files, origin{source: source, path: found.path, ref: repo.ref})
+			_, changed, err := save(ctx, s.db, a.ID, k.Name, found.files, origin{source: source, path: found.path, ref: repo.ref}, &k)
+			if errors.Is(err, errChanged) {
+				u.Failed = append(u.Failed, api.SkillUpdateFailure{Name: k.Name, Message: "changed while it was being updated: update it again if it should follow " + source})
+				continue
+			}
 			if err != nil {
 				return api.SkillUpdates{}, err
 			}
@@ -474,8 +486,17 @@ func (s *Service) UpdateSkills(ctx context.Context, a accounts.Account, names []
 	return u, nil
 }
 
-// ConfigureSkill turns name on or off everywhere, and replaces the machines it stays off on.
-func (s *Service) ConfigureSkill(ctx context.Context, a accounts.Account, name string, enabled *bool, disabledOn []string) (api.Skill, error) {
+// SkillSettings change where a skill is on; what's nil stays as it is. DisabledOn replaces the
+// machines it stays off on; Disable and Enable add machines to them and take machines off them, which
+// two changes at once can't undo each other's of.
+type SkillSettings struct {
+	Enabled         *bool
+	DisabledOn      []string
+	Disable, Enable []string
+}
+
+// ConfigureSkill changes where name is on.
+func (s *Service) ConfigureSkill(ctx context.Context, a accounts.Account, name string, set SkillSettings) (api.Skill, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return api.Skill{}, err
@@ -484,22 +505,30 @@ func (s *Service) ConfigureSkill(ctx context.Context, a accounts.Account, name s
 	if _, err := findSkill(ctx, tx, a.ID, name); err != nil {
 		return api.Skill{}, err
 	}
-	if enabled != nil {
-		if _, err := tx.ExecContext(ctx, `UPDATE skills SET enabled = ? WHERE user_id = ? AND name = ?`, *enabled, a.ID, name); err != nil {
+	if set.Enabled != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE skills SET enabled = ? WHERE user_id = ? AND name = ?`, *set.Enabled, a.ID, name); err != nil {
 			return api.Skill{}, err
 		}
 	}
-	if disabledOn != nil {
+	if set.DisabledOn != nil {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM skill_exclusions WHERE user_id = ? AND skill = ?`, a.ID, name); err != nil {
 			return api.Skill{}, err
 		}
-		for _, id := range slices.Compact(slices.Sorted(slices.Values(disabledOn))) {
-			if err := ownMachine(ctx, tx, a.ID, id); err != nil {
-				return api.Skill{}, err
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO skill_exclusions (user_id, skill, machine_id) VALUES (?, ?, ?)`, a.ID, name, id); err != nil {
-				return api.Skill{}, err
-			}
+	}
+	for _, id := range slices.Concat(set.DisabledOn, set.Disable) {
+		if err := ownMachine(ctx, tx, a.ID, id); err != nil {
+			return api.Skill{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO skill_exclusions (user_id, skill, machine_id) VALUES (?, ?, ?)`, a.ID, name, id); err != nil {
+			return api.Skill{}, err
+		}
+	}
+	for _, id := range set.Enable {
+		if err := ownMachine(ctx, tx, a.ID, id); err != nil {
+			return api.Skill{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM skill_exclusions WHERE user_id = ? AND skill = ? AND machine_id = ?`, a.ID, name, id); err != nil {
+			return api.Skill{}, err
 		}
 	}
 	k, err := findSkill(ctx, tx, a.ID, name)

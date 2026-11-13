@@ -60,25 +60,32 @@ func checkFiles(files []api.SkillFile) ([]api.SkillFile, error) {
 		return nil, api.PayloadTooLarge(fmt.Sprintf("A skill's files add up to at most %d MiB", api.SkillBytesMax>>20))
 	}
 	slices.SortFunc(files, func(a, b api.SkillFile) int { return cmp.Compare(a.Path, b.Path) })
-	paths := map[string]bool{}
+	// Paths are compared ignoring case, as macOS and Windows disks do: SKILL.md and skill.md would be
+	// one file there.
+	paths := map[string]string{}
 	for _, f := range files {
-		if paths[f.Path] {
-			return nil, api.BadRequest(fmt.Sprintf("%q comes twice", f.Path))
+		if other, ok := paths[foldCase(f.Path)]; ok {
+			if other == f.Path {
+				return nil, api.BadRequest(fmt.Sprintf("%q comes twice", f.Path))
+			}
+			return nil, api.BadRequest(fmt.Sprintf("%q and %q differ only in case, and would be one file on many disks", other, f.Path))
 		}
-		paths[f.Path] = true
+		paths[foldCase(f.Path)] = f.Path
 	}
 	for _, f := range files {
 		for dir := path.Dir(f.Path); dir != "."; dir = path.Dir(dir) {
-			if paths[dir] {
-				return nil, api.BadRequest(fmt.Sprintf("%q is a file, and a folder of %q", dir, f.Path))
+			if other, ok := paths[foldCase(dir)]; ok {
+				return nil, api.BadRequest(fmt.Sprintf("%q is a file, and a folder of %q", other, f.Path))
 			}
 		}
 	}
-	if !paths[SkillFile] {
+	if paths[foldCase(SkillFile)] != SkillFile {
 		return nil, api.BadRequest("A skill needs a " + SkillFile + " at the root of its folder")
 	}
 	return files, nil
 }
+
+func foldCase(p string) string { return strings.ToLower(p) }
 
 // Frontmatter is the name and description a SKILL.md's YAML frontmatter gives, "" for those it
 // doesn't. Only the plain and folded forms skills use are read, not YAML at large.

@@ -203,8 +203,24 @@
       "ConfigureSkillInputBody": {
         "additionalProperties": false,
         "properties": {
+          "disable": {
+            "description": "Machines to turn it off on, besides those it's off on already.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
           "disabledOn": {
             "description": "The machines it stays off, replacing those it did.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "enable": {
+            "description": "Machines to turn it back on on. Applied after disabledOn and disable.",
             "items": {
               "type": "string"
             },

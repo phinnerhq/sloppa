@@ -113,10 +113,20 @@ func TestAgentsEditAndSyncFromTheCLI(t *testing.T) {
 	if !strings.Contains(out, "pushed: other-skill\t") || !strings.Contains(out, "pushed: review\t") || !strings.Contains(out, "2 files") {
 		t.Errorf("push:\n%s", out)
 	}
+	// A linked skill folder, as sync makes them in ~/.claude/skills, pushes what it points at.
+	linked := filepath.Join(t.TempDir(), "review-link")
+	if err := os.Symlink(filepath.Join(skills, "review"), linked); err != nil {
+		t.Fatal(err)
+	}
+	if out := ok(t, "", "agents", "skill", "push", linked); !strings.Contains(out, "pushed: review\t") {
+		t.Errorf("push a linked folder:\n%s", out)
+	}
 	if got := ok(t, "", "agents", "skill", "show", "review", "--files"); got != "SKILL.md\nbin/check\n" {
 		t.Errorf("files = %q", got)
 	}
 	ok(t, "", "agents", "skill", "disable", "other-skill", "--machine", "desktop")
+	ok(t, "", "agents", "skill", "disable", "other-skill", "--machine", "laptop")
+	ok(t, "", "agents", "skill", "enable", "other-skill", "--machine", "laptop")
 	if got := ok(t, "", "agents", "skill", "list"); !strings.Contains(got, "other-skill\tuploaded\ton, off on desktop\t") || !strings.Contains(got, "review\tuploaded\ton\tReviews.") {
 		t.Errorf("list:\n%s", got)
 	}

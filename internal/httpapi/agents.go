@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/phinnerhq/sloppa/internal/agents"
 	"github.com/phinnerhq/sloppa/internal/api"
 )
 
@@ -75,6 +76,8 @@ type configureSkillInput struct {
 	Body struct {
 		Enabled    *bool    `json:"enabled,omitempty" required:"false" doc:"Off takes it off every machine."`
 		DisabledOn []string `json:"disabledOn,omitempty" required:"false" maxItems:"500" doc:"The machines it stays off, replacing those it did."`
+		Disable    []string `json:"disable,omitempty" required:"false" maxItems:"500" doc:"Machines to turn it off on, besides those it's off on already."`
+		Enable     []string `json:"enable,omitempty" required:"false" maxItems:"500" doc:"Machines to turn it back on on. Applied after disabledOn and disable."`
 	}
 }
 
@@ -175,7 +178,10 @@ func (s *server) registerAgents() {
 		api.KindSkillNotFound, api.KindMachineNotFound)
 	configure.Description = "Turns a skill on or off, everywhere or on some machines."
 	huma.Register(s.api, configure, func(ctx context.Context, in *configureSkillInput) (*skillOutput, error) {
-		k, err := s.agents.ConfigureSkill(ctx, account(ctx), in.Name, in.Body.Enabled, in.Body.DisabledOn)
+		b := in.Body
+		k, err := s.agents.ConfigureSkill(ctx, account(ctx), in.Name, agents.SkillSettings{
+			Enabled: b.Enabled, DisabledOn: b.DisabledOn, Disable: b.Disable, Enable: b.Enable,
+		})
 		if err != nil {
 			return nil, err
 		}

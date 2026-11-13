@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -181,6 +182,9 @@ func TestCheckFiles(t *testing.T) {
 		"dot":           ok(md, api.SkillFile{Path: "./x"}),
 		"backslash":     ok(md, api.SkillFile{Path: `a\b`}),
 		"twice":         ok(md, md),
+		"case aliases":  ok(md, api.SkillFile{Path: "skill.md"}),
+		"case folder":   ok(md, api.SkillFile{Path: "A"}, api.SkillFile{Path: "a/b"}),
+		"lowercase md":  ok(api.SkillFile{Path: "skill.md"}),
 		"file and dir":  ok(md, api.SkillFile{Path: "a"}, api.SkillFile{Path: "a/b"}),
 		"empty segment": ok(md, api.SkillFile{Path: "a//b"}),
 	} {
@@ -241,7 +245,7 @@ func TestPutSkillAndPlan(t *testing.T) {
 	}
 
 	// Off on the desktop only, then everywhere.
-	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", nil, []string{f.machines[1].Machine.ID}); err != nil {
+	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{DisabledOn: []string{f.machines[1].Machine.ID}}); err != nil {
 		t.Fatal(err)
 	}
 	if dp2, _ := f.svc.Plan(ctx, desktop); len(dp2.Skills) != 0 || dp2.Fingerprint == dp.Fingerprint {
@@ -250,16 +254,16 @@ func TestPutSkillAndPlan(t *testing.T) {
 	if lp2, _ := f.svc.Plan(ctx, laptop); lp2.Fingerprint != lp.Fingerprint {
 		t.Error("the laptop's plan changed with the desktop's")
 	}
-	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", new(false), nil); err != nil {
+	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{Enabled: new(false)}); err != nil {
 		t.Fatal(err)
 	}
 	if lp3, _ := f.svc.Plan(ctx, laptop); len(lp3.Skills) != 0 {
 		t.Errorf("laptop plan with the skill off = %+v", lp3)
 	}
-	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", nil, []string{"nope"}); !api.KindMachineNotFound.Is(err) {
+	if _, err := f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{Disable: []string{"nope"}}); !api.KindMachineNotFound.Is(err) {
 		t.Errorf("unknown machine: %v", err)
 	}
-	if _, err := f.svc.ConfigureSkill(ctx, f.user, "nope", new(true), nil); !api.KindSkillNotFound.Is(err) {
+	if _, err := f.svc.ConfigureSkill(ctx, f.user, "nope", SkillSettings{Enabled: new(true)}); !api.KindSkillNotFound.Is(err) {
 		t.Errorf("unknown skill: %v", err)
 	}
 
@@ -461,5 +465,41 @@ func TestImportBoundsRepositories(t *testing.T) {
 	f.github.set("owner/huge", tarball(t, commit1, files...))
 	if _, err := f.svc.ListSource(t.Context(), f.user, "owner/huge"); !api.KindSourceUnavailable.Is(err) || !strings.Contains(err.Error(), "too large") {
 		t.Errorf("listing a huge repository: %v", err)
+	}
+}
+
+// Turning a skill off on two machines at once leaves it off on both.
+func TestExclusionsAddUp(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	f.svc.PutSkill(ctx, f.user, "review", skillFiles("x"))
+	a, b := f.machines[0].Machine.ID, f.machines[1].Machine.ID
+	f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{Disable: []string{a}})
+	f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{Disable: []string{b, b}})
+	k, err := f.svc.ConfigureSkill(ctx, f.user, "review", SkillSettings{Enable: []string{a}})
+	if err != nil || !slices.Equal(k.DisabledOn, []string{b}) {
+		t.Errorf("disabledOn = %v, %v", k.DisabledOn, err)
+	}
+}
+
+// An update that read a skill before it was uploaded over doesn't undo the upload.
+func TestUpdateDoesntUndoAnUploadMeanwhile(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	f.github.set("owner/repo", tarball(t, commit1, tarFile{name: "review/SKILL.md", body: "v1"}))
+	imported, err := f.svc.ImportSkills(ctx, f.user, "owner/repo", []string{"review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.github.set("owner/repo", tarball(t, commit2, tarFile{name: "review/SKILL.md", body: "v2"}))
+	// The upload lands between the update reading the skill and saving it.
+	stale := imported[0]
+	f.svc.PutSkill(ctx, f.user, "review", skillFiles("by hand"))
+	if _, _, err := save(ctx, f.svc.db, f.user.ID, "review", skillFiles("v2"), origin{source: "owner/repo"}, &stale); !errors.Is(err, errChanged) {
+		t.Errorf("stale save: %v", err)
+	}
+	c, _ := f.svc.SkillContent(ctx, f.user, "review")
+	if string(c.Files[0].Content) != "by hand" {
+		t.Errorf("content = %q", c.Files[0].Content)
 	}
 }

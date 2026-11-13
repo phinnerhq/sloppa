@@ -310,6 +310,12 @@ var skippedNames = map[string]bool{".git": true, "node_modules": true, ".DS_Stor
 // left out: one could point at anything on this machine, like a key. Files are read through a root at
 // dir, so nothing outside it is read even if the folder changes meanwhile.
 func readSkill(dir string) (name string, files []api.SkillFile, links []string, err error) {
+	// The folder itself may be a link, as the ones sync makes in ~/.claude/skills: what it points at
+	// is what was named.
+	dir, err = filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", nil, nil, err
+	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return "", nil, nil, err
@@ -571,24 +577,21 @@ func (a *app) skillSwitchCommand(on bool) *cli.Command {
 				}
 				k := o.Skills[i]
 				body := map[string]any{"enabled": on}
-				if len(ids) > 0 {
-					off := slices.DeleteFunc(slices.Clone(k.DisabledOn), func(id string) bool { return slices.Contains(ids, id) })
-					switch {
-					case !on:
-						off = append(off, ids...)
-					case !k.Enabled:
-						// Off everywhere until now: on only on the machines named.
-						off = nil
-						for _, m := range o.Machines {
-							if !slices.Contains(ids, m.MachineID) {
-								off = append(off, m.MachineID)
-							}
+				switch {
+				case len(ids) == 0:
+				case !on:
+					body = map[string]any{"disable": ids}
+				case !k.Enabled:
+					// Off everywhere until now: on only on the machines named.
+					var off []string
+					for _, m := range o.Machines {
+						if !slices.Contains(ids, m.MachineID) {
+							off = append(off, m.MachineID)
 						}
 					}
-					body = map[string]any{"disabledOn": nonNilStrings(off)}
-					if on {
-						body["enabled"] = true
-					}
+					body["disabledOn"] = nonNilStrings(off)
+				default:
+					body["enable"] = ids
 				}
 				var saved api.Skill
 				if _, err := c.call(ctx, http.MethodPatch, "/api/agents/skills/"+url.PathEscape(skill), nil, body, &saved); err != nil {

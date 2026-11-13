@@ -145,13 +145,19 @@ const SHARED = "shared"
 const InstructionsEditor = ({
   tab,
   saved,
+  draft,
+  onDraft,
+  onSaved,
   machines
 }: {
   tab: string
   saved: string
+  draft: string
+  onDraft: (text: string) => void
+  /** What was saved, once it is: the draft only follows the saved text if nothing was typed since. */
+  onSaved: (submitted: string) => void
   machines: ReadonlyArray<MachineAgents>
 }) => {
-  const [draft, setDraft] = useState(saved)
   const setShared = useMutation(setInstructionsMutation)
   const setOwn = useMutation(setMachineInstructionsMutation)
   const toast = useToast()
@@ -159,21 +165,17 @@ const InstructionsEditor = ({
   const saving = setShared.isPending || setOwn.isPending
   const machine = machines.find((m) => m.machineId === tab)
 
-  // Unsaved edits are worth a warning before the tab closes.
-  useEffect(() => {
-    if (!dirty) return
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener("beforeunload", warn)
-    return () => window.removeEventListener("beforeunload", warn)
-  }, [dirty])
-
   const save = () => {
+    const submitted = draft
     const done = {
-      onSuccess: () => toast("saved: machines get it on their next sync"),
+      onSuccess: () => {
+        onSaved(submitted)
+        toast("saved: machines get it on their next sync")
+      },
       onError: (error: unknown) => toast(messageOf(error, "couldn't save"))
     }
-    if (tab === SHARED) setShared.mutate({ body: { content: draft } }, done)
-    else setOwn.mutate({ path: { machineId: tab }, body: { content: draft } }, done)
+    if (tab === SHARED) setShared.mutate({ body: { content: submitted } }, done)
+    else setOwn.mutate({ path: { machineId: tab }, body: { content: submitted } }, done)
   }
 
   return (
@@ -185,7 +187,7 @@ const InstructionsEditor = ({
       </p>
       <textarea
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => onDraft(e.target.value)}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key === "s") {
             e.preventDefault()
@@ -198,7 +200,9 @@ const InstructionsEditor = ({
         className={`${FIELD} min-h-72 resize-y font-mono text-[13px] leading-relaxed font-medium`}
       />
       <div className="flex items-center justify-end gap-3">
-        <span className="text-xs font-bold text-ink/60">{dirty ? "unsaved changes · ctrl+s saves" : "saved"}</span>
+        <span className="text-xs font-bold text-ink/60">
+          {saving ? "saving…" : dirty ? "unsaved changes · ctrl+s saves" : "saved"}
+        </span>
         <Button tone="green" disabled={!dirty || saving} onClick={save}>
           <FloppyDiskIcon size={16} />
           save
@@ -210,8 +214,22 @@ const InstructionsEditor = ({
 
 const Instructions = ({ shared, machines }: { shared: string; machines: ReadonlyArray<MachineAgents> }) => {
   const [tab, setTab] = useState(SHARED)
+  /** Edits not saved yet, by tab: they outlive switching tabs, and a save landing mid-typing. */
+  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({})
+  const savedOf = (id: string) =>
+    id === SHARED ? shared : (machines.find((m) => m.machineId === id)?.instructions ?? "")
+  const dirtyOf = (id: string) => drafts[id] !== undefined && drafts[id] !== savedOf(id)
   const tabs = [{ id: SHARED, label: "shared" }, ...machines.map((m) => ({ id: m.machineId, label: m.name }))]
-  const saved = tab === SHARED ? shared : (machines.find((m) => m.machineId === tab)?.instructions ?? "")
+  const anyDirty = tabs.some((t) => dirtyOf(t.id))
+
+  // Unsaved edits are worth a warning before the page goes.
+  useEffect(() => {
+    if (!anyDirty) return
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault()
+    window.addEventListener("beforeunload", warn)
+    return () => window.removeEventListener("beforeunload", warn)
+  }, [anyDirty])
+
   return (
     <Section title="instructions">
       <div className="panel space-y-3 p-4">
@@ -226,14 +244,32 @@ const Instructions = ({ shared, machines }: { shared: string; machines: Readonly
               onClick={() => setTab(t.id)}
             >
               {t.label}
-              {t.id !== SHARED && machines.find((m) => m.machineId === t.id)?.instructions.trim() && (
-                <span className="size-1.5 rounded-full bg-ink" aria-label="has its own" />
+              {dirtyOf(t.id) ? (
+                <span aria-label="unsaved changes">*</span>
+              ) : (
+                t.id !== SHARED &&
+                savedOf(t.id).trim() !== "" && (
+                  <span className="size-1.5 rounded-full bg-ink" aria-label="has its own" />
+                )
               )}
             </Button>
           ))}
         </div>
-        {/* Keyed by tab and saved text: switching tabs or saving starts the draft over. */}
-        <InstructionsEditor key={`${tab}:${saved}`} tab={tab} saved={saved} machines={machines} />
+        <InstructionsEditor
+          tab={tab}
+          saved={savedOf(tab)}
+          draft={drafts[tab] ?? savedOf(tab)}
+          onDraft={(text) => setDrafts((all) => ({ ...all, [tab]: text }))}
+          onSaved={(submitted) =>
+            setDrafts((all) => {
+              if (all[tab] !== submitted) return all
+              const rest = { ...all }
+              delete rest[tab]
+              return rest
+            })
+          }
+          machines={machines}
+        />
       </div>
     </Section>
   )
@@ -507,7 +543,10 @@ const SkillFiles = ({ name }: { name: string }) => {
   )
 }
 
-/** A machine's switch for a skill: on, or off on that machine (or everywhere, when the skill is). */
+/**
+ * A machine's switch for a skill: on, or off on that machine (or everywhere, when the skill is). It adds or
+ * takes this one machine only, so quick clicks on several don't undo each other.
+ */
 const MachineSwitch = ({ skill, machine }: { skill: Skill; machine: MachineAgents }) => {
   const configure = useMutation(configureSkillMutation)
   const off = skill.disabledOn.includes(machine.machineId)
@@ -523,16 +562,12 @@ const MachineSwitch = ({ skill, machine }: { skill: Skill; machine: MachineAgent
       onClick={() =>
         configure.mutate({
           path: { name: skill.name },
-          body: {
-            disabledOn: off
-              ? skill.disabledOn.filter((id) => id !== machine.machineId)
-              : [...skill.disabledOn, machine.machineId]
-          }
+          body: off ? { enable: [machine.machineId] } : { disable: [machine.machineId] }
         })
       }
       className={`flex items-center gap-1 rounded-full border-2 border-ink px-2 py-0.5 text-[11px] font-extrabold transition-colors disabled:cursor-not-allowed ${
         on ? "bg-cash text-white" : "bg-cream text-ink/45 line-through"
-      } ${!skill.enabled ? "opacity-40" : ""}`}
+      } ${!skill.enabled ? "opacity-40" : ""} ${configure.isPending ? "animate-pulse" : ""}`}
     >
       {on && <CheckIcon size={10} />}
       {machine.name}

@@ -10,6 +10,8 @@ package agentsync
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,8 +85,12 @@ type Result struct {
 type state struct {
 	// Skills are the skills it installed, by name.
 	Skills map[string]installed `json:"skills"`
-	// Instructions tells whether it wrote ~/.agents/AGENTS.md.
-	Instructions bool `json:"instructions,omitempty"`
+	// Instructions tells whether it wrote ~/.agents/AGENTS.md, and InstructionsHash what it wrote:
+	// a file that reads otherwise was edited since, and is backed up before it's replaced.
+	Instructions     bool   `json:"instructions,omitempty"`
+	InstructionsHash string `json:"instructionsHash,omitempty"`
+	// Copies are the harness paths it wrote copies to, where links couldn't be made.
+	Copies []string `json:"copies,omitempty"`
 }
 
 type installed struct {
@@ -103,6 +109,8 @@ type syncer struct {
 	result  Result
 	backup  string
 	backups int
+	// copies are the harness paths this sync left as copies.
+	copies []string
 }
 
 // Sync brings the machine in line with plan. A failed step is reported and the others still go.
@@ -111,13 +119,28 @@ func Sync(ctx context.Context, plan api.SyncPlan, opts Options) Result {
 	s.skills = filepath.Join(s.agents, "skills")
 	s.backup = filepath.Join(s.agents, ".sloppa-backups", opts.Now.UTC().Format("20060102T150405.000Z"))
 
+	// One sync at a time: two would each write their own idea of what sloppa installed.
+	if !opts.DryRun {
+		if err := os.MkdirAll(s.agents, 0o755); err != nil {
+			s.problem("make %s: %v", s.tilde(s.agents), err)
+			return s.result
+		}
+		unlock, err := lock(filepath.Join(s.agents, ".sloppa-sync.lock"))
+		if err != nil {
+			s.problem("another sync is running on this machine: try again once it's done (%v)", err)
+			return s.result
+		}
+		defer unlock()
+	}
+
 	prev, err := s.readState()
 	if err != nil {
 		s.problem("read %s: %v", s.statePath(), err)
 	}
 	next := state{Skills: map[string]installed{}}
-	next.Instructions = s.instructions(plan.Instructions, prev.Instructions)
+	s.instructions(plan.Instructions, prev, &next)
 	s.syncSkills(plan.Skills, prev, &next)
+	next.Copies = s.copies
 	if !opts.DryRun {
 		if err := s.writeState(next); err != nil {
 			s.problem("write %s: %v", s.statePath(), err)
@@ -177,14 +200,33 @@ func (s *syncer) writeState(st state) error {
 	return writeFileAtomic(s.statePath(), append(raw, '\n'), 0o644)
 }
 
-// moveAside moves p into this sync's backup, keeping its place under the home folder.
-func (s *syncer) moveAside(p string) error {
+// backupPath is where p goes in this sync's backup: its place under the home folder, or its whole
+// path under outside-home/, and never where something else went already.
+func (s *syncer) backupPath(p string) (string, error) {
 	rel, err := filepath.Rel(s.opts.Home, p)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		rel = filepath.Join("outside-home", filepath.Base(p))
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", err
+		}
+		// C:\x\y becomes outside-home/C/x/y; /x/y becomes outside-home/x/y.
+		vol := strings.TrimSuffix(filepath.VolumeName(abs), ":")
+		rel = filepath.Join("outside-home", vol, strings.TrimPrefix(abs, filepath.VolumeName(abs)))
 	}
 	dest := filepath.Join(s.backup, rel)
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	for i := 1; ; i++ {
+		if _, err := os.Lstat(dest); errors.Is(err, fs.ErrNotExist) {
+			break
+		}
+		dest = fmt.Sprintf("%s.%d", filepath.Join(s.backup, rel), i)
+	}
+	return dest, os.MkdirAll(filepath.Dir(dest), 0o755)
+}
+
+// moveAside moves p into this sync's backup.
+func (s *syncer) moveAside(p string) error {
+	dest, err := s.backupPath(p)
+	if err != nil {
 		return err
 	}
 	if err := os.Rename(p, dest); err != nil {
@@ -213,33 +255,36 @@ func (s *syncer) pruneBackups() {
 	}
 }
 
-// instructions writes content to ~/.agents/AGENTS.md and links each harness's instructions to it.
-// Blank instructions write nothing, and remove the file when an earlier sync wrote it. It's whether
-// the file is sloppa's now.
-func (s *syncer) instructions(content string, wrote bool) bool {
+// instructions writes content to ~/.agents/AGENTS.md and links each harness's instructions to it,
+// noting in next what it wrote. Blank instructions write nothing, and remove what an earlier sync
+// wrote. A file someone else wrote, or that was edited since, is backed up before it's replaced.
+func (s *syncer) instructions(content string, prev state, next *state) {
 	target := filepath.Join(s.agents, "AGENTS.md")
 	if content == "" {
-		if !wrote {
-			return false
+		if !prev.Instructions {
+			return
 		}
 		if _, err := os.Lstat(target); err == nil {
 			s.change("removed %s, as there are no instructions", s.tilde(target))
 			if !s.opts.DryRun {
 				if err := s.moveAside(target); err != nil {
 					s.problem("remove %s: %v", s.tilde(target), err)
-					return true
+					next.Instructions, next.InstructionsHash = true, prev.InstructionsHash
+					return
 				}
 			}
 		}
 		for _, h := range s.opts.Harnesses {
-			s.unlinkInstructions(h, target)
+			s.unlinkInstructions(h, target, prev.Copies)
 		}
-		return false
+		return
 	}
 
+	next.Instructions, next.InstructionsHash = prev.Instructions, prev.InstructionsHash
 	current, err := os.ReadFile(target)
 	switch {
 	case err == nil && string(current) == content:
+		next.Instructions, next.InstructionsHash = true, contentHash(current)
 	case err == nil || errors.Is(err, fs.ErrNotExist):
 		if err == nil {
 			s.change("updated %s", s.tilde(target))
@@ -247,36 +292,42 @@ func (s *syncer) instructions(content string, wrote bool) bool {
 			s.change("wrote %s", s.tilde(target))
 		}
 		if !s.opts.DryRun {
-			if err == nil && !wrote {
-				// Someone else's file: kept in the backup.
-				if err := copyToBackup(s, target); err != nil {
+			// Someone else's file, or edited since: kept in the backup.
+			if err == nil && (!prev.Instructions || contentHash(current) != prev.InstructionsHash) {
+				if err := s.copyToBackup(target); err != nil {
 					s.problem("back up %s: %v", s.tilde(target), err)
-					return wrote
+					return
 				}
 			}
 			if err := os.MkdirAll(s.agents, 0o755); err != nil {
 				s.problem("write %s: %v", s.tilde(target), err)
-				return wrote
+				return
 			}
 			if err := writeFileAtomic(target, []byte(content), 0o644); err != nil {
 				s.problem("write %s: %v", s.tilde(target), err)
-				return wrote
+				return
 			}
 		}
+		next.Instructions, next.InstructionsHash = true, contentHash([]byte(content))
 	default:
 		s.problem("read %s: %v", s.tilde(target), err)
-		return wrote
+		return
 	}
 	for _, h := range s.opts.Harnesses {
 		if h.Instructions != "" && isDir(h.Dir) {
 			s.link(filepath.Join(h.Dir, h.Instructions), target, h.Name+"'s instructions")
 		}
 	}
-	return true
 }
 
-// unlinkInstructions removes a harness's link to target, the instructions no longer there.
-func (s *syncer) unlinkInstructions(h Harness, target string) {
+func contentHash(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// unlinkInstructions removes a harness's link to target, the instructions no longer there, or the
+// copy an earlier sync made instead (moved to the backup, in case it was edited).
+func (s *syncer) unlinkInstructions(h Harness, target string, copies []string) {
 	if h.Instructions == "" {
 		return
 	}
@@ -288,6 +339,16 @@ func (s *syncer) unlinkInstructions(h Harness, target string) {
 				s.problem("unlink %s: %v", s.tilde(p), err)
 			}
 		}
+		return
+	}
+	if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() && slices.Contains(copies, p) {
+		s.change("removed %s, a copy of the instructions", s.tilde(p))
+		if !s.opts.DryRun {
+			if err := s.moveAside(p); err != nil {
+				s.problem("remove %s: %v", s.tilde(p), err)
+				s.copies = append(s.copies, p)
+			}
+		}
 	}
 }
 
@@ -297,9 +358,14 @@ func (s *syncer) link(p, target, what string) {
 	if dest, err := os.Readlink(p); err == nil && sameFile(p, dest, target) {
 		return
 	}
+	// p is target itself, through a link to a folder above it: as with CODEX_HOME=~/.agents.
+	if aliases(p, target) {
+		return
+	}
 	fi, err := os.Lstat(p)
 	exists := err == nil
 	if exists && fi.Mode().IsRegular() && runtime.GOOS == "windows" && sameContent(p, target) {
+		s.copies = append(s.copies, p)
 		return
 	}
 	if exists && fi.IsDir() && runtime.GOOS == "windows" {
@@ -330,8 +396,20 @@ func (s *syncer) link(p, target, what string) {
 	if err := os.Symlink(target, p); err != nil {
 		if cerr := copyPath(target, p); cerr != nil {
 			s.problem("link %s: %v; copying instead failed too: %v", s.tilde(p), err, cerr)
+		} else if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+			s.copies = append(s.copies, p)
 		}
 	}
+}
+
+// aliases tells whether p, resolving the links in the folders above it, is target.
+func aliases(p, target string) bool {
+	dir, err := filepath.EvalSymlinks(filepath.Dir(p))
+	if err != nil {
+		return false
+	}
+	t, err := filepath.EvalSymlinks(target)
+	return err == nil && filepath.Join(dir, filepath.Base(p)) == t
 }
 
 // syncSkills installs, updates and removes skills so that ~/.agents/skills has wanted.
@@ -363,7 +441,10 @@ func (s *syncer) syncSkills(wanted []api.SkillRef, prev state, next *state) {
 		if names[name] || !api.IsSkillName(name) {
 			continue
 		}
-		s.removeSkill(name)
+		if !s.removeSkill(name) {
+			// Still sloppa's, to try again next time.
+			next.Skills[name] = prev.Skills[name]
+		}
 	}
 }
 
@@ -460,12 +541,19 @@ func (s *syncer) installSkill(ref api.SkillRef, had installed) (installed, bool)
 		s.problem("read %s back: %v", s.tilde(dir), err)
 		return installed{}, false
 	}
+	// Read back as sent, but where executable bits don't exist to read back.
+	if local != ref.Hash && runtime.GOOS != "windows" {
+		s.problem("skill %s didn't come out as sent: names that differ only in case on a case-insensitive disk? Fix it on the server, then sync again", ref.Name)
+		return installed{}, false
+	}
 	return installed{Hash: ref.Hash, Local: local}, true
 }
 
-// removeSkill takes away a skill sloppa installed, and the harness links to it.
-func (s *syncer) removeSkill(name string) {
+// removeSkill takes away a skill sloppa installed, and the harness links to it. It's whether
+// everything went.
+func (s *syncer) removeSkill(name string) bool {
 	dir := filepath.Join(s.skills, name)
+	ok := true
 	for _, h := range s.opts.Harnesses {
 		if !s.linksSkills(h) {
 			continue
@@ -475,6 +563,7 @@ func (s *syncer) removeSkill(name string) {
 			if !s.opts.DryRun {
 				if err := os.Remove(p); err != nil {
 					s.problem("unlink %s: %v", s.tilde(p), err)
+					ok = false
 				}
 			}
 		} else if fi, err := os.Lstat(p); err == nil && fi.IsDir() && runtime.GOOS == "windows" {
@@ -482,19 +571,22 @@ func (s *syncer) removeSkill(name string) {
 			if !s.opts.DryRun {
 				if err := s.moveAside(p); err != nil {
 					s.problem("remove %s: %v", s.tilde(p), err)
+					ok = false
 				}
 			}
 		}
 	}
 	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
-		return
+		return ok
 	}
 	s.change("removed skill %s", name)
 	if !s.opts.DryRun {
 		if err := s.moveAside(dir); err != nil {
 			s.problem("remove skill %s: %v", name, err)
+			return false
 		}
 	}
+	return ok
 }
 
 // writeSkill writes files into dir, a new empty folder.
@@ -605,12 +697,12 @@ func writeFileAtomic(p string, content []byte, mode fs.FileMode) error {
 }
 
 // copyToBackup copies p into the backup, leaving it where it is.
-func copyToBackup(s *syncer, p string) error {
-	rel, err := filepath.Rel(s.opts.Home, p)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		rel = filepath.Join("outside-home", filepath.Base(p))
+func (s *syncer) copyToBackup(p string) error {
+	dest, err := s.backupPath(p)
+	if err != nil {
+		return err
 	}
-	if err := copyPath(p, filepath.Join(s.backup, rel)); err != nil {
+	if err := copyPath(p, dest); err != nil {
 		return err
 	}
 	s.backups++

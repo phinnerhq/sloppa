@@ -304,3 +304,97 @@ func readFile(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// Instructions edited through a harness's link since the last sync are kept in the backup.
+func TestEditedInstructionsAreBackedUp(t *testing.T) {
+	skipWithoutSymlinks(t)
+	m := newMachine(t)
+	m.sync(api.SyncPlan{Instructions: "v1\n"}, false)
+	m.write(".codex/AGENTS.md", "edited by hand\n")
+	res := m.sync(api.SyncPlan{Instructions: "v2\n"}, false)
+	if res.Backup == "" || readFile(t, filepath.Join(res.Backup, ".agents/AGENTS.md")) != "edited by hand\n" {
+		t.Errorf("edit not backed up: %+v", res)
+	}
+	// Unedited, nothing to keep.
+	if res := m.sync(api.SyncPlan{Instructions: "v3\n"}, false); res.Backup != "" {
+		t.Errorf("backed up an unedited file: %s", res.Backup)
+	}
+}
+
+// Harness folders outside the home folder each keep their own backup.
+func TestBackupsOutsideHomeDontCollide(t *testing.T) {
+	skipWithoutSymlinks(t)
+	m := newMachine(t)
+	outside := t.TempDir()
+	codex, opencode := filepath.Join(outside, "codex"), filepath.Join(outside, "opencode")
+	writeFile(t, filepath.Join(codex, "AGENTS.md"), "codex's")
+	writeFile(t, filepath.Join(opencode, "AGENTS.md"), "opencode's")
+	res := Sync(t.Context(), api.SyncPlan{Instructions: "x\n"}, Options{
+		Home: m.home, Fetch: m.server.fetch, Now: m.clock,
+		Harnesses: []Harness{
+			{Name: "Codex", Dir: codex, Instructions: "AGENTS.md"},
+			{Name: "opencode", Dir: opencode, Instructions: "AGENTS.md"},
+		},
+	})
+	if len(res.Problems) > 0 {
+		t.Fatal(res.Problems)
+	}
+	for dir, want := range map[string]string{codex: "codex's", opencode: "opencode's"} {
+		if got := readFile(t, filepath.Join(res.Backup, "outside-home", dir, "AGENTS.md")); got != want {
+			t.Errorf("backup of %s = %q", dir, got)
+		}
+	}
+}
+
+// With CODEX_HOME=~/.agents, Codex's instructions are the file itself: nothing to link.
+func TestAHarnessThatIsTheAgentsFolder(t *testing.T) {
+	skipWithoutSymlinks(t)
+	m := newMachine(t)
+	res := Sync(t.Context(), api.SyncPlan{Instructions: "x\n"}, Options{
+		Home: m.home, Fetch: m.server.fetch, Now: m.clock,
+		Harnesses: []Harness{{Name: "Codex", Dir: m.path(".agents"), Instructions: "AGENTS.md"}},
+	})
+	if len(res.Problems) > 0 || m.read(".agents/AGENTS.md") != "x\n" {
+		t.Errorf("result %+v", res)
+	}
+}
+
+func TestOneSyncAtATime(t *testing.T) {
+	m := newMachine(t)
+	os.MkdirAll(m.path(".agents"), 0o755)
+	unlock, err := lock(m.path(".agents/.sloppa-sync.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	res := Sync(t.Context(), api.SyncPlan{Instructions: "x\n"}, Options{Home: m.home, Fetch: m.server.fetch, Now: m.clock})
+	if len(res.Problems) != 1 || !strings.Contains(res.Problems[0], "another sync is running") || m.exists(".agents/AGENTS.md") {
+		t.Errorf("result %+v", res)
+	}
+}
+
+// A skill that couldn't be removed is still sloppa's, and removed once it can be.
+func TestAFailedRemovalIsRetried(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissions work otherwise")
+	}
+	m := newMachine(t)
+	m.sync(api.SyncPlan{Skills: []api.SkillRef{m.server.put("review", md("review"))}}, false)
+	os.Chmod(m.path(".agents/skills"), 0o500)
+	res := Sync(t.Context(), api.SyncPlan{}, Options{Home: m.home, Fetch: m.server.fetch, Now: m.clock.Add(time.Minute)})
+	os.Chmod(m.path(".agents/skills"), 0o755)
+	if len(res.Problems) == 0 {
+		t.Fatal("removing from a read-only folder went fine")
+	}
+	if res := m.sync(api.SyncPlan{}, false); !slices.Contains(res.Changes, "removed skill review") {
+		t.Errorf("not retried: %v", res.Changes)
+	}
+}
+
+func writeFile(t *testing.T, p, content string) {
+	t.Helper()
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
