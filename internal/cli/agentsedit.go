@@ -306,37 +306,45 @@ func (a *app) skillShowCommand() *cli.Command {
 // skippedNames are never part of a pushed skill.
 var skippedNames = map[string]bool{".git": true, "node_modules": true, ".DS_Store": true}
 
-// readSkill is the files of the skill folder dir, and the name it goes by.
-func readSkill(dir string) (string, []api.SkillFile, error) {
-	var files []api.SkillFile
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+// readSkill is the files of the skill folder dir, the name it goes by, and the links in it, which are
+// left out: one could point at anything on this machine, like a key. Files are read through a root at
+// dir, so nothing outside it is read even if the folder changes meanwhile.
+func readSkill(dir string) (name string, files []api.SkillFile, links []string, err error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	defer root.Close()
+	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if skippedNames[d.Name()] {
 			if d.IsDir() {
-				return filepath.SkipDir
+				return fs.SkipDir
 			}
 			return nil
 		}
-		if d.IsDir() {
+		switch {
+		case d.Type()&fs.ModeSymlink != 0:
+			links = append(links, p)
+			return nil
+		case !d.Type().IsRegular():
 			return nil
 		}
-		// Links to files count as the file; links to folders are left out.
-		info, err := os.Stat(p)
-		if err != nil || !info.Mode().IsRegular() {
-			return nil
-		}
-		content, err := os.ReadFile(p)
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel(dir, p)
-		files = append(files, api.SkillFile{Path: filepath.ToSlash(rel), Executable: info.Mode()&0o100 != 0, Content: content})
+		content, err := root.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		files = append(files, api.SkillFile{Path: p, Executable: info.Mode()&0o100 != 0, Content: content})
 		return nil
 	})
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 	var skillMD []byte
 	for _, f := range files {
@@ -346,7 +354,7 @@ func readSkill(dir string) (string, []api.SkillFile, error) {
 	}
 	abs, _ := filepath.Abs(dir)
 	fmName, _ := agents.Frontmatter(skillMD)
-	return agents.SkillName(fmName, filepath.Base(abs)), files, nil
+	return agents.SkillName(fmName, filepath.Base(abs)), files, links, nil
 }
 
 // skillDirs are the skill folders in path: itself when it has a SKILL.md, otherwise each of its
@@ -376,7 +384,7 @@ func (a *app) skillPushCommand() *cli.Command {
 	return &cli.Command{
 		Name: "push",
 		Usage: "Upload skill folders, each with a SKILL.md, or folders of them, like ~/.agents/skills. Each replaces the skill by that name, " +
-			"which then is no longer updated from GitHub. Named by SKILL.md's frontmatter, or the folder. Prints one line per skill.",
+			"which then is no longer updated from GitHub. Named by SKILL.md's frontmatter, or the folder. Links in a folder are left out. Prints one line per skill.",
 		ArgsUsage: "<folders>...",
 		Flags:     []cli.Flag{&cli.StringFlag{Name: "name", Usage: "Upload one folder under this name instead"}},
 		Metadata: helpSections(
@@ -406,10 +414,13 @@ func (a *app) skillPushCommand() *cli.Command {
 			}
 			var failed []string
 			for _, dir := range dirs {
-				name, files, err := readSkill(dir)
+				name, files, links, err := readSkill(dir)
 				if err != nil {
 					failed = append(failed, fmt.Sprintf("%s: %v", dir, err))
 					continue
+				}
+				for _, link := range links {
+					fmt.Fprintf(stderr(cmd), "left out %s: links aren't pushed, copy the file in instead\n", filepath.Join(dir, link))
 				}
 				name = cmp.Or(cmd.String("name"), name)
 				var k api.Skill

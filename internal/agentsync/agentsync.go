@@ -416,8 +416,21 @@ func (s *syncer) installSkill(ref api.SkillRef, had installed) (installed, bool)
 		s.problem("download skill %s: got version %.12s, expected %.12s; sync again", ref.Name, got, ref.Hash)
 		return installed{}, false
 	}
-	staging := filepath.Join(s.skills, "."+ref.Name+".sloppa-new")
-	os.RemoveAll(staging)
+	// A fresh folder of its own, made by this sync: nothing left or put there before is reused.
+	if err := os.MkdirAll(s.skills, 0o755); err != nil {
+		s.problem("write skill %s: %v", ref.Name, err)
+		return installed{}, false
+	}
+	staging, err := os.MkdirTemp(s.skills, "."+ref.Name+".sloppa-new-*")
+	if err != nil {
+		s.problem("write skill %s: %v", ref.Name, err)
+		return installed{}, false
+	}
+	if err := os.Chmod(staging, 0o755); err != nil {
+		os.RemoveAll(staging)
+		s.problem("write skill %s: %v", ref.Name, err)
+		return installed{}, false
+	}
 	if err := writeSkill(staging, content.Files); err != nil {
 		os.RemoveAll(staging)
 		s.problem("write skill %s: %v", ref.Name, err)
@@ -484,7 +497,7 @@ func (s *syncer) removeSkill(name string) {
 	}
 }
 
-// writeSkill writes files into dir, which mustn't exist.
+// writeSkill writes files into dir, a new empty folder.
 func writeSkill(dir string, files []api.SkillFile) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

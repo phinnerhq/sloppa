@@ -361,7 +361,7 @@ func (s *Service) ListSource(ctx context.Context, a accounts.Account, source str
 	if err := checkSource(source); err != nil {
 		return api.SourceListing{}, err
 	}
-	repo, err := s.github.fetch(ctx, source)
+	repo, err := s.github.fetch(ctx, source, nil)
 	if err != nil {
 		return api.SourceListing{}, err
 	}
@@ -387,7 +387,7 @@ func (s *Service) ImportSkills(ctx context.Context, a accounts.Account, source s
 	if len(names) == 0 {
 		return nil, api.BadRequest("Name the skills to import")
 	}
-	repo, err := s.github.fetch(ctx, source)
+	repo, err := s.github.fetch(ctx, source, func(k repoSkill) bool { return slices.Contains(names, k.name) })
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +433,10 @@ func (s *Service) UpdateSkills(ctx context.Context, a accounts.Account, names []
 	}
 	u := api.SkillUpdates{Updated: []string{}, Unchanged: []string{}, Failed: []api.SkillUpdateFailure{}}
 	for _, source := range slices.Sorted(maps.Keys(bySource)) {
-		repo, err := s.github.fetch(ctx, source)
+		// Found by folder, so a skill renamed upstream still follows; by name otherwise.
+		repo, err := s.github.fetch(ctx, source, func(r repoSkill) bool {
+			return slices.ContainsFunc(bySource[source], func(k api.Skill) bool { return k.SourcePath == r.path || k.Name == r.name })
+		})
 		for _, k := range bySource[source] {
 			if err != nil {
 				u.Failed = append(u.Failed, api.SkillUpdateFailure{Name: k.Name, Message: err.Error()})

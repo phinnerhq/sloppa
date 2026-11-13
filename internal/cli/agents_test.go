@@ -99,7 +99,17 @@ func TestAgentsEditAndSyncFromTheCLI(t *testing.T) {
 	writeFile(t, filepath.Join(skills, "review", "node_modules", "x.js"), "left out", 0o644)
 	writeFile(t, filepath.Join(skills, "Other Skill", "SKILL.md"), "no frontmatter", 0o644)
 	writeFile(t, filepath.Join(skills, "not-a-skill", "README.md"), "", 0o644)
-	out := ok(t, "", "agents", "skill", "push", skills)
+	// A link out of the folder could point at anything: it's left out.
+	secret := filepath.Join(t.TempDir(), "id_ed25519")
+	writeFile(t, secret, "PRIVATE KEY", 0o600)
+	if err := os.Symlink(secret, filepath.Join(skills, "review", "key")); err != nil {
+		t.Fatal(err)
+	}
+	res := run(t, "", "agents", "skill", "push", skills)
+	out := res.stdout
+	if res.code != 0 || !strings.Contains(res.stderr, "left out "+filepath.Join(skills, "review", "key")) {
+		t.Errorf("push: %+v", res)
+	}
 	if !strings.Contains(out, "pushed: other-skill\t") || !strings.Contains(out, "pushed: review\t") || !strings.Contains(out, "2 files") {
 		t.Errorf("push:\n%s", out)
 	}

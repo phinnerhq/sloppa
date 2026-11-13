@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -447,5 +448,18 @@ func TestNormalizeSource(t *testing.T) {
 		if got := NormalizeSource(in); got != want {
 			t.Errorf("NormalizeSource(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A repository past the bounds is refused, rather than read into memory: here, too many skills.
+func TestImportBoundsRepositories(t *testing.T) {
+	f := newFixture(t)
+	files := make([]tarFile, skillsMax+1)
+	for i := range files {
+		files[i] = tarFile{name: fmt.Sprintf("s%d/SKILL.md", i), body: "x"}
+	}
+	f.github.set("owner/huge", tarball(t, commit1, files...))
+	if _, err := f.svc.ListSource(t.Context(), f.user, "owner/huge"); !api.KindSourceUnavailable.Is(err) || !strings.Contains(err.Error(), "too large") {
+		t.Errorf("listing a huge repository: %v", err)
 	}
 }

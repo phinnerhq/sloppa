@@ -14,16 +14,35 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/phinnerhq/sloppa/internal/api"
 )
 
-// archiveMax bounds a repository's tarball, compressed.
-const archiveMax = 256 << 20
+// Bounds on reading a repository, whatever it holds: a small archive can unpack to a lot.
+const (
+	// archiveMax bounds the tarball, compressed.
+	archiveMax = 256 << 20
+	// unpackedMax bounds what one pass over it decompresses.
+	unpackedMax = 1 << 30
+	// entriesMax bounds its entries, and skillsMax the skills found in it.
+	entriesMax = 200_000
+	skillsMax  = 2_000
+	// frontmatterMax is how much of each SKILL.md is kept while looking for skills: enough for
+	// the frontmatter, which is all a listing needs.
+	frontmatterMax = 16 << 10
+	// retainedMax bounds the files kept of the skills asked for, all together.
+	retainedMax = 128 << 20
+	// fetchesMax bounds the repositories read at once.
+	fetchesMax = 2
+)
 
-// fetchTimeout bounds downloading one.
+// fetchTimeout bounds downloading and reading one.
 const fetchTimeout = 2 * time.Minute
+
+// errTooLarge is a repository past the bounds above.
+var errTooLarge = errors.New("too large to read skills from")
 
 // repoSkill is a skill found in a repository: a folder with a SKILL.md, and every file under it but
 // those of skills nested in it.
@@ -55,6 +74,20 @@ type GitHub struct {
 	// Token, if set, authenticates the downloads.
 	Token  string
 	Client *http.Client
+
+	once  sync.Once
+	slots chan struct{}
+}
+
+// acquire waits for a slot to read a repository in; release gives it back.
+func (g *GitHub) acquire(ctx context.Context) (release func(), err error) {
+	g.once.Do(func() { g.slots = make(chan struct{}, fetchesMax) })
+	select {
+	case g.slots <- struct{}{}:
+		return func() { <-g.slots }, nil
+	case <-ctx.Done():
+		return nil, api.SourceUnavailable("Too many repositories being read right now: try again")
+	}
 }
 
 // skipped are folders never searched for skills: dependencies and version control.
@@ -62,11 +95,17 @@ var skipped = map[string]bool{"node_modules": true, ".git": true}
 
 var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// fetch downloads source's default branch and finds the skills in it. The tarball goes to a temporary
-// file and is read twice: once to find the skills, once for their files only.
-func (g *GitHub) fetch(ctx context.Context, source string) (repository, error) {
+// fetch downloads source's default branch and finds the skills in it, with the files of those want
+// says (want may be nil, for none). The tarball goes to a temporary file and is read twice: once to
+// find the skills, once for the files wanted.
+func (g *GitHub) fetch(ctx context.Context, source string, want func(repoSkill) bool) (repository, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
+	release, err := g.acquire(ctx)
+	if err != nil {
+		return repository{}, err
+	}
+	defer release()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.BaseURL+"/repos/"+source+"/tarball", nil)
 	if err != nil {
 		return repository{}, err
@@ -111,7 +150,7 @@ func (g *GitHub) fetch(ctx context.Context, source string) (repository, error) {
 	if n > archiveMax {
 		return repository{}, api.SourceUnavailable(fmt.Sprintf("%s is larger than %d MiB compressed, too large to read skills from", source, archiveMax>>20))
 	}
-	repo, err := readArchive(tmp, source)
+	repo, err := readArchive(ctx, tmp, source, want)
 	if err != nil {
 		return repository{}, api.SourceUnavailable(fmt.Sprintf("Couldn't read %s's archive: %v", source, err))
 	}
@@ -120,7 +159,8 @@ func (g *GitHub) fetch(ctx context.Context, source string) (repository, error) {
 
 // walk calls f with each regular file of the tarball in r, its path without the top folder GitHub
 // puts everything in, and returns the commit the archive says it is of.
-func walk(r io.ReadSeeker, f func(name string, h *tar.Header, tr *tar.Reader) error) (ref string, err error) {
+// It stops past unpackedMax bytes or entriesMax entries, or once ctx is done.
+func walk(ctx context.Context, r io.ReadSeeker, f func(name string, h *tar.Header, tr *tar.Reader) error) (ref string, err error) {
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return "", err
 	}
@@ -129,9 +169,19 @@ func walk(r io.ReadSeeker, f func(name string, h *tar.Header, tr *tar.Reader) er
 		return "", err
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
-	for {
+	unpacked := &io.LimitedReader{R: gz, N: unpackedMax}
+	tr := tar.NewReader(unpacked)
+	for entries := 0; ; entries++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if entries > entriesMax {
+			return "", fmt.Errorf("more than %d entries: %w", entriesMax, errTooLarge)
+		}
 		h, err := tr.Next()
+		if unpacked.N <= 0 {
+			return "", fmt.Errorf("more than %d MiB unpacked: %w", unpackedMax>>20, errTooLarge)
+		}
 		if errors.Is(err, io.EOF) {
 			return ref, nil
 		}
@@ -155,58 +205,26 @@ func walk(r io.ReadSeeker, f func(name string, h *tar.Header, tr *tar.Reader) er
 		if err := f(name, h, tr); err != nil {
 			return "", err
 		}
+		if unpacked.N <= 0 {
+			return "", fmt.Errorf("more than %d MiB unpacked: %w", unpackedMax>>20, errTooLarge)
+		}
 	}
 }
 
-func readArchive(r io.ReadSeeker, source string) (repository, error) {
-	// First the skills' folders and SKILL.md files.
+// readArchive finds the skills in the tarball in r, then reads the files of those want says.
+func readArchive(ctx context.Context, r io.ReadSeeker, source string, want func(repoSkill) bool) (repository, error) {
+	// First the skills' folders, and the start of each SKILL.md for its frontmatter.
 	found := map[string][]byte{}
-	ref, err := walk(r, func(name string, h *tar.Header, tr *tar.Reader) error {
-		if path.Base(name) != SkillFile || h.Size > api.SkillBytesMax {
+	ref, err := walk(ctx, r, func(name string, h *tar.Header, tr *tar.Reader) error {
+		if path.Base(name) != SkillFile {
 			return nil
 		}
-		content, err := io.ReadAll(tr)
+		if len(found) >= skillsMax {
+			return fmt.Errorf("more than %d skills: %w", skillsMax, errTooLarge)
+		}
+		content, err := io.ReadAll(io.LimitReader(tr, frontmatterMax))
 		found[path.Dir(name)] = content
 		return err
-	})
-	if err != nil {
-		return repository{}, err
-	}
-	// Then each folder's files, going to the deepest skill folder holding them.
-	owner := func(name string) (string, bool) {
-		for dir := path.Dir(name); ; dir = path.Dir(dir) {
-			if _, ok := found[dir]; ok {
-				return dir, true
-			}
-			if dir == "." {
-				return "", false
-			}
-		}
-	}
-	files := map[string][]api.SkillFile{}
-	sizes := map[string]int64{}
-	tooLarge := map[string]bool{}
-	_, err = walk(r, func(name string, h *tar.Header, tr *tar.Reader) error {
-		dir, ok := owner(name)
-		if !ok || tooLarge[dir] {
-			return nil
-		}
-		sizes[dir] += h.Size
-		if sizes[dir] > api.SkillBytesMax || len(files[dir]) >= api.SkillFilesMax {
-			tooLarge[dir] = true
-			files[dir] = nil
-			return nil
-		}
-		content, err := io.ReadAll(tr)
-		if err != nil {
-			return err
-		}
-		rel := strings.TrimPrefix(name, dir+"/")
-		if dir == "." {
-			rel = name
-		}
-		files[dir] = append(files[dir], api.SkillFile{Path: rel, Executable: h.Mode&0o111 != 0, Content: content})
-		return nil
 	})
 	if err != nil {
 		return repository{}, err
@@ -214,6 +232,7 @@ func readArchive(r io.ReadSeeker, source string) (repository, error) {
 
 	repo := repository{source: source, ref: ref}
 	names := map[string]bool{}
+	wanted := map[string]int{}
 	for _, dir := range slices.Sorted(maps.Keys(found)) {
 		fmName, description := Frontmatter(found[dir])
 		folder := path.Base(dir)
@@ -229,12 +248,68 @@ func readArchive(r io.ReadSeeker, source string) (repository, error) {
 		if dir == "." {
 			s.path = ""
 		}
+		if want != nil && want(s) {
+			wanted[dir] = len(repo.skills)
+		}
+		repo.skills = append(repo.skills, s)
+	}
+	if len(wanted) == 0 {
+		return repo, nil
+	}
+
+	// Then the wanted skills' files, each file going to the deepest skill folder holding it.
+	owner := func(name string) (string, bool) {
+		for dir := path.Dir(name); ; dir = path.Dir(dir) {
+			if _, ok := found[dir]; ok {
+				return dir, true
+			}
+			if dir == "." {
+				return "", false
+			}
+		}
+	}
+	files := map[string][]api.SkillFile{}
+	sizes := map[string]int64{}
+	tooLarge := map[string]bool{}
+	var retained int64
+	_, err = walk(ctx, r, func(name string, h *tar.Header, tr *tar.Reader) error {
+		dir, ok := owner(name)
+		if _, isWanted := wanted[dir]; !ok || !isWanted || tooLarge[dir] {
+			return nil
+		}
+		sizes[dir] += h.Size
+		if sizes[dir] > api.SkillBytesMax || len(files[dir]) >= api.SkillFilesMax {
+			tooLarge[dir] = true
+			for _, f := range files[dir] {
+				retained -= int64(len(f.Content))
+			}
+			files[dir] = nil
+			return nil
+		}
+		content, err := io.ReadAll(io.LimitReader(tr, api.SkillBytesMax+1))
+		if err != nil {
+			return err
+		}
+		if retained += int64(len(content)); retained > retainedMax {
+			return fmt.Errorf("the skills asked for add up to more than %d MiB: %w", retainedMax>>20, errTooLarge)
+		}
+		rel := strings.TrimPrefix(name, dir+"/")
+		if dir == "." {
+			rel = name
+		}
+		files[dir] = append(files[dir], api.SkillFile{Path: rel, Executable: h.Mode&0o111 != 0, Content: content})
+		return nil
+	})
+	if err != nil {
+		return repository{}, err
+	}
+	for dir, i := range wanted {
+		s := &repo.skills[i]
 		if tooLarge[dir] {
-			s.err = api.PayloadTooLarge(fmt.Sprintf("%s in %s is larger than a skill may be", name, source))
+			s.err = api.PayloadTooLarge(fmt.Sprintf("%s in %s is larger than a skill may be", s.name, source))
 		} else if s.files, err = checkFiles(files[dir]); err != nil {
 			s.err = err
 		}
-		repo.skills = append(repo.skills, s)
 	}
 	return repo, nil
 }
