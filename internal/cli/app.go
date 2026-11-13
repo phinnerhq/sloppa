@@ -55,13 +55,14 @@ func newApp(serve cli.ActionFunc, version string) *cli.Command {
 		Name:  "sloppa",
 		Usage: "Agent tools for a sloppa server",
 		Description: "Agent tools for a sloppa server: artifacts (screenshots, recordings, logs) filed in collections like " +
-			"`owner/repo #42`, and dev servers shared at public URLs. Run `sloppa <command> --help` for each one's flags.",
+			"`owner/repo #42`, dev servers shared at public URLs, and agent instructions and skills synced to every machine. Run `sloppa <command> --help` for each one's flags.",
 		Version:         version,
 		HideHelpCommand: true,
 		Metadata: helpSections(nil,
 			example{`sloppa artifact upload -c "owner/repo #42" checkout.png`, "Prints a Markdown link"},
 			example{`sloppa artifact list -c "owner/repo #42"`, ""},
 			example{"sloppa preview run -- pnpm dev", "Shares the dev server while it runs"},
+			example{"sloppa agents sync", "Brings the instructions and skills from the dashboard to this machine"},
 		),
 		// Actions get a context that a signal cancels, with the signal as its cause, for commands that
 		// run a process to hand on.
@@ -80,6 +81,7 @@ func newApp(serve cli.ActionFunc, version string) *cli.Command {
 			a.artifactCommand(),
 			a.collectionCommand(),
 			a.previewCommand(),
+			a.agentsCommand(),
 			{
 				Name:   "serve",
 				Usage:  "Run the sloppa server; configured by environment variables, see .env.example",

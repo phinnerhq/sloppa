@@ -19,6 +19,7 @@ type server struct {
 	accounts  Accounts
 	artifacts Artifacts
 	previews  Previews
+	agents    Agents
 	api       huma.API
 	cop       *http.CrossOriginProtection
 }
@@ -31,6 +32,7 @@ func New(d Deps) http.Handler {
 		accounts:  d.Accounts,
 		artifacts: d.Artifacts,
 		previews:  d.Previews,
+		agents:    d.Agents,
 		cop:       http.NewCrossOriginProtection(),
 	}
 	// Behind a proxy that rewrites Host, a browser's Origin is still the public URL's.
@@ -44,6 +46,7 @@ func New(d Deps) http.Handler {
 	s.registerMachines()
 	s.registerArtifacts()
 	s.registerPreviews()
+	s.registerAgents()
 	s.registerUpload(mux)
 	s.registerTunnel(mux)
 	s.registerFiles(mux)

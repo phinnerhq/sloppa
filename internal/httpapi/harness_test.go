@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/phinnerhq/sloppa/internal/accounts"
+	"github.com/phinnerhq/sloppa/internal/agents"
 	"github.com/phinnerhq/sloppa/internal/config"
 	"github.com/phinnerhq/sloppa/internal/db"
 )
@@ -35,6 +36,7 @@ type harness struct {
 	accounts  *accounts.Service
 	artifacts *fakeArtifacts
 	previews  *fakePreviews
+	agents    *agents.Service
 }
 
 type option func(*config.Config, *Deps)
@@ -64,8 +66,10 @@ func newHarness(t *testing.T, opts ...option) *harness {
 		t.Fatal(err)
 	}
 	cfg := &config.Config{PublicURL: "http://sloppa.test"}
-	h := &harness{t: t, cfg: cfg, accounts: accts, artifacts: newFakeArtifacts(), previews: &fakePreviews{}}
-	d := Deps{Config: cfg, Accounts: accts, Artifacts: h.artifacts, Previews: h.previews}
+	// No GitHub: importing isn't the HTTP layer's to test.
+	agentSetup := agents.New(state, &agents.GitHub{BaseURL: "http://127.0.0.1:0"})
+	h := &harness{t: t, cfg: cfg, accounts: accts, artifacts: newFakeArtifacts(), previews: &fakePreviews{}, agents: agentSetup}
+	d := Deps{Config: cfg, Accounts: accts, Artifacts: h.artifacts, Previews: h.previews, Agents: agentSetup}
 	for _, opt := range opts {
 		opt(cfg, &d)
 	}

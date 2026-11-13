@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/phinnerhq/sloppa/internal/accounts"
+	"github.com/phinnerhq/sloppa/internal/agents"
 	"github.com/phinnerhq/sloppa/internal/artifacts"
 	"github.com/phinnerhq/sloppa/internal/config"
 	"github.com/phinnerhq/sloppa/internal/db"
@@ -60,6 +61,8 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
+	agentSetup := agents.New(state, &agents.GitHub{BaseURL: "https://api.github.com", Token: cfg.GitHubToken.Value()})
+
 	static, err := staticFiles(cfg)
 	if err != nil {
 		return err
@@ -67,7 +70,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 
 	srv := &http.Server{
 		Addr:              net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Handler:           httpapi.New(httpapi.Deps{Config: cfg, Accounts: accts, Artifacts: arts, Previews: previews, Static: static}),
+		Handler:           httpapi.New(httpapi.Deps{Config: cfg, Accounts: accts, Artifacts: arts, Previews: previews, Agents: agentSetup, Static: static}),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 		// No read or write timeout: uploads, downloads and tunnels may all take long.
