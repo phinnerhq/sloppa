@@ -19,8 +19,8 @@ import (
 func (a *app) agentsCommand() *cli.Command {
 	return &cli.Command{
 		Name:     "agents",
-		Usage:    "Sync agent instructions and skills from the server to this machine",
-		Commands: []*cli.Command{a.agentsSyncCommand()},
+		Usage:    "Sync agent instructions and skills to this machine, and edit them for every machine",
+		Commands: []*cli.Command{a.agentsSyncCommand(), a.agentsStatusCommand(), a.instructionsCommand(), a.skillCommand()},
 	}
 }
 

@@ -1236,6 +1236,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1315,6 +1318,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1414,6 +1420,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1513,6 +1522,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1609,6 +1621,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1689,6 +1704,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1808,6 +1826,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -1903,6 +1924,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [
@@ -2079,6 +2103,9 @@
         "security": [
           {
             "session": []
+          },
+          {
+            "bearer": []
           }
         ],
         "tags": [

@@ -14,7 +14,7 @@ func TestAgentsAccess(t *testing.T) {
 	session := h.login()
 	token := h.machineToken()
 
-	// Editing takes a person: a leaked machine token mustn't reach every machine's agents.
+	// Editing is open to the CLI as well as the dashboard; signed out, nothing is.
 	for _, r := range []struct{ method, path string }{
 		{"GET", "/api/agents"},
 		{"PUT", "/api/agents/instructions"},
@@ -24,13 +24,16 @@ func TestAgentsAccess(t *testing.T) {
 		{"POST", "/api/agents/skills/update"},
 		{"POST", "/api/agents/sources"},
 	} {
-		res := h.send(h.req(r.method, r.path, map[string]any{}).bearer(token))
-		if res.Code != http.StatusUnauthorized {
-			t.Errorf("%s %s with a machine token: %d %s", r.method, r.path, res.Code, res.Body)
+		if res := h.do(r.method, r.path, map[string]any{}); res.Code != http.StatusUnauthorized {
+			t.Errorf("%s %s signed out: %d %s", r.method, r.path, res.Code, res.Body)
 		}
 	}
+	res := h.send(h.req("PUT", "/api/agents/instructions", map[string]string{"content": "From the CLI.\n"}).bearer(token))
+	if res.Code != http.StatusNoContent {
+		t.Errorf("set instructions with a machine token: %d %s", res.Code, res.Body)
+	}
 	// Syncing takes a machine: a browser has no machine to plan for.
-	res := h.send(h.req("GET", "/api/agents/sync", nil).cookie(session))
+	res = h.send(h.req("GET", "/api/agents/sync", nil).cookie(session))
 	if code, _ := errorCode(t, res); res.Code != http.StatusUnauthorized || code != "unauthorized" {
 		t.Errorf("sync plan with a session: %d %s", res.Code, res.Body)
 	}

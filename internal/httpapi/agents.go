@@ -102,7 +102,7 @@ type reportSyncInput struct {
 const skillUploadMax = api.SkillBytesMax/3*4 + 1<<20
 
 func (s *server) registerAgents() {
-	overview := s.operation("Agents", "agents.overview", http.MethodGet, "/api/agents", browser)
+	overview := s.operation("Agents", "agents.overview", http.MethodGet, "/api/agents", signedIn)
 	overview.Description = "The instructions and skills `sloppa agents sync` brings to the machines, and how each machine last synced."
 	huma.Register(s.api, overview, func(ctx context.Context, _ *struct{}) (*agentsOverviewOutput, error) {
 		o, err := s.agents.Overview(ctx, account(ctx))
@@ -112,14 +112,14 @@ func (s *server) registerAgents() {
 		return &agentsOverviewOutput{Body: o}, nil
 	})
 
-	setShared := s.operation("Agents", "agents.setInstructions", http.MethodPut, "/api/agents/instructions", browser)
+	setShared := s.operation("Agents", "agents.setInstructions", http.MethodPut, "/api/agents/instructions", signedIn)
 	setShared.Description = "Replaces the instructions every machine gets in ~/.agents/AGENTS.md."
 	setShared.MaxBodyBytes = api.InstructionsMax + 1<<16
 	huma.Register(s.api, setShared, func(ctx context.Context, in *setInstructionsInput) (*struct{}, error) {
 		return nil, s.agents.SetInstructions(ctx, account(ctx), in.Body.Content)
 	})
 
-	setOwn := s.operation("Agents", "agents.setMachineInstructions", http.MethodPut, "/api/agents/instructions/{machineId}", browser,
+	setOwn := s.operation("Agents", "agents.setMachineInstructions", http.MethodPut, "/api/agents/instructions/{machineId}", signedIn,
 		api.KindMachineNotFound)
 	setOwn.Description = "Replaces the instructions only this machine gets, after the shared ones. Blank removes them."
 	setOwn.MaxBodyBytes = api.InstructionsMax + 1<<16
@@ -127,7 +127,7 @@ func (s *server) registerAgents() {
 		return nil, s.agents.SetMachineInstructions(ctx, account(ctx), in.MachineID, in.Body.Content)
 	})
 
-	list := s.operation("Agents", "agents.listSource", http.MethodPost, "/api/agents/sources", browser,
+	list := s.operation("Agents", "agents.listSource", http.MethodPost, "/api/agents/sources", signedIn,
 		api.KindSourceUnavailable)
 	list.Description = "The skills in a GitHub repository's default branch, to pick from for importing."
 	huma.Register(s.api, list, func(ctx context.Context, in *listSourceInput) (*sourceListingOutput, error) {
@@ -138,7 +138,7 @@ func (s *server) registerAgents() {
 		return &sourceListingOutput{Body: l}, nil
 	})
 
-	imp := s.operation("Agents", "agents.importSkills", http.MethodPost, "/api/agents/skills/import", browser,
+	imp := s.operation("Agents", "agents.importSkills", http.MethodPost, "/api/agents/skills/import", signedIn,
 		api.KindSourceUnavailable)
 	imp.Description = "Imports skills from a GitHub repository's default branch. A skill by the same name is replaced, and follows the repository from then on."
 	huma.Register(s.api, imp, func(ctx context.Context, in *importSkillsInput) (*skillsOutput, error) {
@@ -149,7 +149,7 @@ func (s *server) registerAgents() {
 		return &skillsOutput{Body: imported}, nil
 	})
 
-	update := s.operation("Agents", "agents.updateSkills", http.MethodPost, "/api/agents/skills/update", browser,
+	update := s.operation("Agents", "agents.updateSkills", http.MethodPost, "/api/agents/skills/update", signedIn,
 		api.KindSkillNotFound)
 	update.Description = "Brings imported skills up to date with their repositories. A repository that can't be read fails its skills only."
 	huma.Register(s.api, update, func(ctx context.Context, in *updateSkillsInput) (*skillUpdatesOutput, error) {
@@ -160,7 +160,7 @@ func (s *server) registerAgents() {
 		return &skillUpdatesOutput{Body: u}, nil
 	})
 
-	put := s.operation("Agents", "agents.putSkill", http.MethodPut, "/api/agents/skills/{name}", browser)
+	put := s.operation("Agents", "agents.putSkill", http.MethodPut, "/api/agents/skills/{name}", signedIn)
 	put.Description = "Saves a skill's folder as uploaded, replacing the skill by that name if there is one. It's then no longer updated from a repository."
 	put.MaxBodyBytes = skillUploadMax
 	huma.Register(s.api, put, func(ctx context.Context, in *putSkillInput) (*skillOutput, error) {
@@ -171,7 +171,7 @@ func (s *server) registerAgents() {
 		return &skillOutput{Body: k}, nil
 	})
 
-	configure := s.operation("Agents", "agents.configureSkill", http.MethodPatch, "/api/agents/skills/{name}", browser,
+	configure := s.operation("Agents", "agents.configureSkill", http.MethodPatch, "/api/agents/skills/{name}", signedIn,
 		api.KindSkillNotFound, api.KindMachineNotFound)
 	configure.Description = "Turns a skill on or off, everywhere or on some machines."
 	huma.Register(s.api, configure, func(ctx context.Context, in *configureSkillInput) (*skillOutput, error) {
@@ -182,7 +182,7 @@ func (s *server) registerAgents() {
 		return &skillOutput{Body: k}, nil
 	})
 
-	del := s.operation("Agents", "agents.deleteSkill", http.MethodDelete, "/api/agents/skills/{name}", browser,
+	del := s.operation("Agents", "agents.deleteSkill", http.MethodDelete, "/api/agents/skills/{name}", signedIn,
 		api.KindSkillNotFound)
 	del.Description = "Deletes a skill: machines remove it the next time they sync."
 	huma.Register(s.api, del, func(ctx context.Context, in *skillNameInput) (*struct{}, error) {
