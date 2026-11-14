@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/phinnerhq/sloppa/internal/accounts"
+	"github.com/phinnerhq/sloppa/internal/agents"
 	"github.com/phinnerhq/sloppa/internal/api"
 	"github.com/phinnerhq/sloppa/internal/artifacts"
 	"github.com/phinnerhq/sloppa/internal/config"
@@ -72,11 +73,29 @@ type Previews interface {
 	ServeProxy(w http.ResponseWriter, r *http.Request)
 }
 
+// Agents is implemented by *agents.Service.
+type Agents interface {
+	Overview(ctx context.Context, a accounts.Account) (api.AgentsOverview, error)
+	SetInstructions(ctx context.Context, a accounts.Account, content string) error
+	SetMachineInstructions(ctx context.Context, a accounts.Account, machineID, content string) error
+	ListSource(ctx context.Context, a accounts.Account, source string) (api.SourceListing, error)
+	ImportSkills(ctx context.Context, a accounts.Account, source string, names []string) ([]api.Skill, error)
+	UpdateSkills(ctx context.Context, a accounts.Account, names []string) (api.SkillUpdates, error)
+	PutSkill(ctx context.Context, a accounts.Account, name string, files []api.SkillFile) (api.Skill, error)
+	ConfigureSkill(ctx context.Context, a accounts.Account, name string, set agents.SkillSettings) (api.Skill, error)
+	DeleteSkill(ctx context.Context, a accounts.Account, name string) error
+	SkillContent(ctx context.Context, a accounts.Account, name string) (api.SkillContent, error)
+	// Plan and Report are for the machine a is signed in as.
+	Plan(ctx context.Context, a accounts.Account) (api.SyncPlan, error)
+	Report(ctx context.Context, a accounts.Account, fingerprint string, problems []string, cliVersion string) error
+}
+
 type Deps struct {
 	Config    *config.Config
 	Accounts  Accounts
 	Artifacts Artifacts
 	Previews  Previews
+	Agents    Agents
 	// Static is the built dashboard; nil serves none.
 	Static fs.FS
 }

@@ -4,9 +4,11 @@ export type Route =
   | { readonly _tag: "List" }
   | { readonly _tag: "Artifact"; readonly id: string }
   | { readonly _tag: "Credits" }
+  | { readonly _tag: "Agents" }
 
 const parse = (pathname: string): Route => {
   if (/^\/credits\/?$/.test(pathname)) return { _tag: "Credits" }
+  if (/^\/agents\/?$/.test(pathname)) return { _tag: "Agents" }
   const match = /^\/a\/([^/]+)\/?$/.exec(pathname)
   return match?.[1] ? { _tag: "Artifact", id: decodeURIComponent(match[1]) } : { _tag: "List" }
 }

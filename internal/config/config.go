@@ -45,6 +45,10 @@ type Config struct {
 	// DataDir holds the accounts, the SQLite index and, without S3, the files themselves.
 	DataDir string `env:"DATA_DIR" envDefault:".data"`
 
+	// GitHubToken reads skills from private repositories, and lifts GitHub's rate limit on
+	// anonymous downloads.
+	GitHubToken Secret `env:"GITHUB_TOKEN"`
+
 	S3 *S3 `env:",init" envPrefix:"S3_"`
 
 	Preview *Preview `env:",init" envPrefix:"PREVIEW_"`

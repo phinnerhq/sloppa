@@ -6,6 +6,7 @@ A simple platform for helping with agentic workflows. Features:
 
 - artifacts storage
 - preview urls
+- agent instructions and skills, synced to every machine
 
 ## Run
 
@@ -36,5 +37,16 @@ printf %s "$TOKEN" | sloppa login https://sloppa.example.com
 sloppa artifact upload -c "owner/repo #42" checkout.png run.log
 sloppa preview run -- pnpm dev
 ```
+
+### Agent instructions and skills
+
+The dashboard's Agents page keeps one set of instructions and skills for all your machines: instructions shared by all, plus extra ones per machine, and skills imported from GitHub repositories (and updated from them later) or uploaded as folders, each turned on or off per machine. Each machine pulls them with:
+
+```sh
+sloppa agents sync --dry-run   # what would change
+sloppa agents sync
+```
+
+It writes `~/.agents/AGENTS.md` and links it as `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and `~/.config/opencode/AGENTS.md`, for the harnesses whose folder exists. Skills go to `~/.agents/skills/<name>`, which Codex and opencode read, and are linked into `~/.claude/skills`. Whatever a sync replaces or removes is moved to `~/.agents/.sloppa-backups/` first, and only skills sloppa installed are ever removed. Each sync reports back, so the page shows which machines are behind or had problems. Run it from cron or a shell profile to keep machines current. The CLI edits them too, so agents can: `sloppa agents instructions show|set` and `sloppa agents skill list|push|import|update|enable|disable|remove`. Mind that any machine's token can then change what every machine's agents read: revoke a leaked one from the dashboard. Set `GITHUB_TOKEN` on the server to import from private repositories; every account and machine token can import from whatever it reads, so scope it to the skill repositories you mean to share.
 
 Run `sloppa --help` or `sloppa <command> --help` for the rest. Agents can use [skills/sloppa/SKILL.md](skills/sloppa/SKILL.md).

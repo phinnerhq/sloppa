@@ -30,6 +30,8 @@ const (
 	// browser takes the session cookie only. Managing machines takes a person: a leaked machine token
 	// mustn't be able to mint itself replacements before it's revoked.
 	browser
+	// machine takes a machine's bearer token only, for what a machine does about itself.
+	machine
 )
 
 func (a access) security() []map[string][]string {
@@ -38,13 +40,18 @@ func (a access) security() []map[string][]string {
 		return []map[string][]string{{cookieScheme: {}}, {bearerScheme: {}}}
 	case browser:
 		return []map[string][]string{{cookieScheme: {}}}
+	case machine:
+		return []map[string][]string{{bearerScheme: {}}}
 	}
 	return nil
 }
 
 func (a access) unauthorized() *api.Error {
-	if a == browser {
+	switch a {
+	case browser:
 		return api.Unauthorized("Sign in from a browser for this")
+	case machine:
+		return api.Unauthorized("Only a machine does this, with its own token: run it where sloppa is set up")
 	}
 	return api.Unauthorized("Sign in, or pass a machine token")
 }
@@ -72,7 +79,7 @@ func account(ctx context.Context) accounts.Account {
 // whoever opens it.
 func (s *server) authenticate(r *http.Request, need access) (context.Context, error) {
 	ctx := r.Context()
-	if session := s.sessionToken(r); session != "" {
+	if session := s.sessionToken(r); session != "" && need != machine {
 		a, ok, err := s.accounts.Authenticate(ctx, accounts.KindSession, session)
 		if err != nil {
 			return nil, err
@@ -84,7 +91,7 @@ func (s *server) authenticate(r *http.Request, need access) (context.Context, er
 			return context.WithValue(accounts.WithAccount(ctx, a), sessionKey{}, session), nil
 		}
 	}
-	if need == signedIn {
+	if need == signedIn || need == machine {
 		if token, ok := bearerToken(r); ok {
 			a, ok, err := s.accounts.Authenticate(ctx, accounts.KindMachine, token)
 			if err != nil {

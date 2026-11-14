@@ -5,6 +5,7 @@ import { type ReactElement, type Ref, StrictMode, useCallback, useLayoutEffect, 
 import { createRoot } from "react-dom/client"
 import { queryClient } from "./api.ts"
 import { Account } from "./components/Account.tsx"
+import { Agents, AgentsButton } from "./components/Agents.tsx"
 import { ArtifactList } from "./components/ArtifactList.tsx"
 import { ArtifactView } from "./components/ArtifactView.tsx"
 import { ConnectMachine } from "./components/Connect.tsx"
@@ -20,6 +21,7 @@ const Session = () => {
   if (!useSignedIn()) return null
   return (
     <>
+      <AgentsButton />
       <Previews />
       <ConnectMachine />
       <Account />
@@ -65,6 +67,8 @@ const Page = ({ route }: { route: Route }) =>
     <ArtifactList />
   ) : route._tag === "Credits" ? (
     <Credits />
+  ) : route._tag === "Agents" ? (
+    <Agents />
   ) : (
     <ArtifactView key={route.id} id={route.id} />
   )

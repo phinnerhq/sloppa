@@ -1,5 +1,15 @@
 import { keepPreviousData, mutationOptions, QueryClient, queryOptions } from "@tanstack/react-query"
 import {
+  agentsConfigureSkillMutation,
+  agentsDeleteSkillMutation,
+  agentsImportSkillsMutation,
+  agentsListSourceMutation,
+  agentsOverviewOptions,
+  agentsPutSkillMutation,
+  agentsSetInstructionsMutation,
+  agentsSetMachineInstructionsMutation,
+  agentsSkillContentOptions,
+  agentsUpdateSkillsMutation,
   artifactsCollectionsOptions,
   artifactsDeleteMutation,
   artifactsGetOptions,
@@ -37,7 +47,7 @@ export const queryClient = new QueryClient({
 })
 
 /** Every query under one of the API document's tags. */
-const invalidate = (tag: "Artifacts" | "Machines" | "Previews") =>
+const invalidate = (tag: "Agents" | "Artifacts" | "Machines" | "Previews") =>
   queryClient.invalidateQueries({ queryKey: [{ tags: [tag] }] })
 
 /** Who is signed in; fails with `unauthorized` when nobody is. Only signing in or out changes it. */
@@ -70,6 +80,22 @@ export const renameMachineMutation = mutationOptions({
 })
 export const createSetupMutation = machinesCreateSetupMutation()
 export const revokeSetupMutation = machinesRevokeSetupMutation()
+
+/** What `sloppa agents sync` brings to the machines, and how each last synced. */
+export const agentsQuery = agentsOverviewOptions()
+const agentsChanged = { onSuccess: () => invalidate("Agents") }
+export const setInstructionsMutation = mutationOptions({ ...agentsSetInstructionsMutation(), ...agentsChanged })
+export const setMachineInstructionsMutation = mutationOptions({
+  ...agentsSetMachineInstructionsMutation(),
+  ...agentsChanged
+})
+export const listSourceMutation = agentsListSourceMutation()
+export const importSkillsMutation = mutationOptions({ ...agentsImportSkillsMutation(), ...agentsChanged })
+export const updateSkillsMutation = mutationOptions({ ...agentsUpdateSkillsMutation(), ...agentsChanged })
+export const putSkillMutation = mutationOptions({ ...agentsPutSkillMutation(), ...agentsChanged })
+export const configureSkillMutation = mutationOptions({ ...agentsConfigureSkillMutation(), ...agentsChanged })
+export const deleteSkillMutation = mutationOptions({ ...agentsDeleteSkillMutation(), ...agentsChanged })
+export const skillContentQuery = (name: string) => agentsSkillContentOptions({ path: { name } })
 
 /** Dev servers shared with `sloppa preview run`, live for as long as that runs. */
 export const previewsQuery = previewsListOptions()

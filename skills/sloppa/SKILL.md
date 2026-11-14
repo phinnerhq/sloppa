@@ -1,11 +1,11 @@
 ---
 name: sloppa
-description: Attach screenshots, recordings, logs or reports to a PR or issue as links, or share a running dev server at a public URL, with the `sloppa` CLI.
+description: Attach screenshots, recordings, logs or reports to a PR or issue as links, share a running dev server at a public URL, or sync this machine's agent instructions and skills, with the `sloppa` CLI.
 ---
 
 # sloppa
 
-`sloppa` stores files as **artifacts** filed in **collections**, and shares dev servers as **previews**. Every artifact link is public to anyone holding it: upload what you'd paste in the PR itself.
+`sloppa` stores files as **artifacts** filed in **collections**, shares dev servers as **previews**, and keeps the user's **agent instructions and skills** for every machine. Every artifact link is public to anyone holding it: upload what you'd paste in the PR itself.
 
 ## Ready
 
@@ -29,6 +29,24 @@ Done when the PR shows the links. A file in the wrong collection: `sloppa artifa
 3. The preview lives exactly as long as the command: stop the command, or `sloppa preview stop <id>`, when done. `sloppa: tunnel lost (…), reconnecting` means the server blipped or restarted: the command reconnects to the same URL by itself, so leave it running.
 
 `--name checkout` gives a stable subdomain, `--password` puts it behind one, `--ttl 2h` bounds it.
+
+## Sync agent instructions and skills
+
+The user edits them on the dashboard's Agents page; machines pull them.
+
+1. `sloppa agents sync --dry-run` to see what would change, then `sloppa agents sync`.
+2. It writes `~/.agents/AGENTS.md` and skills into `~/.agents/skills`, links them where Claude Code, Codex and opencode read them, and moves anything it replaces to `~/.agents/.sloppa-backups/`. Only skills it installed are ever removed.
+3. Done when it exits 0. A nonzero exit lists what failed; the dashboard shows the same.
+
+Restart the agent session to pick up new instructions.
+
+## Edit agent instructions and skills
+
+Changes reach every machine, so make them when the user asks, then sync.
+
+- Instructions: `sloppa agents instructions show > a.md`, edit, `sloppa agents instructions set a.md`. Add `--machine this` for this machine's own, which come after the shared ones; `show --machine this --composed` prints what it gets.
+- Skills: `sloppa agents skill list`; `skill push <folder>` uploads a skill folder (or a folder of them); `skill import owner/repo` lists a GitHub repository's skills and `skill import owner/repo <names>...` imports them; `skill update` pulls imported ones from GitHub; `skill disable <name> --machine this` turns one off here only; `skill remove <name> --yes` takes it off every machine.
+- `sloppa agents status` shows which machines still need a sync.
 
 ## Everything else
 

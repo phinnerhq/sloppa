@@ -76,6 +76,9 @@ var (
 	KindStorageError        = ErrorKind{"storage_error", http.StatusBadGateway, ""}
 	KindPreviewsUnavailable = ErrorKind{"previews_unavailable", http.StatusServiceUnavailable, ""}
 	KindSetupLinkGone       = ErrorKind{"setup_link_gone", http.StatusGone, ""}
+	KindMachineNotFound     = ErrorKind{"machine_not_found", http.StatusNotFound, "id"}
+	KindSkillNotFound       = ErrorKind{"skill_not_found", http.StatusNotFound, ""}
+	KindSourceUnavailable   = ErrorKind{"source_unavailable", http.StatusBadGateway, ""}
 )
 
 // ErrorKinds is every kind of error the API's operations document. KindNotFound isn't among them: it
@@ -83,7 +86,7 @@ var (
 var ErrorKinds = []ErrorKind{
 	KindBadRequest, KindUnauthorized, KindInvalidCredentials, KindForbidden, KindArtifactNotFound,
 	KindPreviewNotFound, KindPreviewNameTaken, KindPayloadTooLarge, KindTooManyAttempts, KindInternalError,
-	KindStorageError, KindPreviewsUnavailable,
+	KindStorageError, KindPreviewsUnavailable, KindMachineNotFound, KindSkillNotFound, KindSourceUnavailable,
 }
 
 // BadRequest is input the API refuses, with what's wrong with it.
@@ -111,6 +114,17 @@ func PreviewNotFound(id string) *Error {
 func PreviewNameTaken(name string) *Error {
 	return KindPreviewNameTaken.New(fmt.Sprintf("%q is taken by another preview right now", name))
 }
+
+func MachineNotFound(id string) *Error {
+	e := KindMachineNotFound.New("No machine " + id)
+	e.ID = id
+	return e
+}
+
+func SkillNotFound(name string) *Error { return KindSkillNotFound.New("No skill " + name) }
+
+// SourceUnavailable means a skill's GitHub repository couldn't be read, or lacks the skill.
+func SourceUnavailable(message string) *Error { return KindSourceUnavailable.New(message) }
 
 func PayloadTooLarge(message string) *Error { return KindPayloadTooLarge.New(message) }
 
